@@ -1,0 +1,25 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Node / JS
+node_modules/
+npm-debug.log*
+yarn-error.log*
+dist/
+build/
+
+# Env & secrets
+.env
+*.env
+backend/.env
+contracts/.env
+
+# OS / Editors
+.DS_Store
+Thumbs.db
+.vscode/
