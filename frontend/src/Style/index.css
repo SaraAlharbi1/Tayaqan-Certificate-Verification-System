@@ -1,0 +1,65 @@
+/* Project font */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* Design tokens (colors, font) */
+@theme {
+  /* Global font family */
+  --font-sans: "IBM Plex Sans Arabic", system-ui, sans-serif;
+
+  /* Brand colors */
+  --color-brand-700: #27288D; /* deep navy blue */
+  --color-brand-600: #625FEE; /* bright indigo */
+  --color-brand-500: #4F46E5; /* fallback mid-indigo if needed */
+  --color-brand-50:  #EEF0FF;
+
+  /* Accents / states */
+  --color-emerald-500: #10b981; /* success */
+  --color-amber-500:   #f59e0b; /* warning */
+  --color-rose-500:    #ef4444; /* error */
+
+  /* Neutrals */
+  --color-surface: #ffffff;     /* section bg */
+  --color-border:  #e5e7eb;     /* borders */
+  --color-muted:   #6b7280;     /* secondary text */
+}
+
+/* Base: light global defaults */
+@layer base {
+  html { @apply font-sans text-gray-900 bg-white; }
+  body { @apply antialiased; }
+  a { @apply text-brand-600 hover:text-brand-700; }
+  h1,h2,h3,h4,h5,h6 { @apply font-bold text-gray-900; }
+}
+
+/* Components: reusable building blocks */
+@layer components {
+  /* Buttons */
+  .btn { 
+    @apply inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium transition-colors;
+  }
+  .btn-primary { @apply bg-brand-600 text-white hover:bg-brand-700; }
+  .btn-outline { @apply border border-brand-600 text-brand-600 hover:bg-brand-50; }
+  .btn-ghost   { @apply text-muted hover:bg-surface; }
+
+  /* Cards */
+  .card { 
+    @apply rounded-2xl bg-white shadow-md border border-border p-6; 
+  }
+
+  /* Interactive card variant (hover lift + ring) */
+  .card-interactive {
+    @apply relative transition hover:-translate-y-0.5 hover:shadow-lg;
+  }
+
+  /* Framed icon for cards */
+  .icon-frame {
+    @apply shrink-0 rounded-xl border border-black/5 bg-white p-2 shadow-sm;
+  }
+
+  /* Badges */
+  .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
+  .badge-success { @apply bg-emerald-500/10 text-emerald-600; }
+  .badge-warning { @apply bg-amber-500/10   text-amber-600; }
+  .badge-error   { @apply bg-rose-500/10    text-rose-600; }
+}
