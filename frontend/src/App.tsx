@@ -9,6 +9,8 @@ import HowItWorksPage from "./pages/HowItWorksPage";
 // Auth
 import LoginPage from "./pages/auth/LoginPage";
 import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
+import SignupInstitution from "./pages/auth/SignupInstitution";
+import SuccessPending from "./pages/auth/SuccessPending";
 
 // Employer role
 import AccessRequests from "./Pages/EmployerRole/AccessRequests";
@@ -21,6 +23,13 @@ import ApplicantPage from "./Pages/ApplicantRole/ApplicantPage";
 import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
 import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
+
+// Employer/Applicant signup pages (if present in your repo)
+import SignupApplicant from "./Pages/auth/SignupApplicant";
+import SignupEmployer from "./Pages/auth/SignupEmployer";
+
+// Institution role
+import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
 
 export default function App() {
   return (
@@ -46,8 +55,13 @@ export default function App() {
 
         {/* Signup */}
         <Route path="/signup" element={<SignupSelectionPage />} />
-        <Route path="/signup/applicant" element={<div>Applicant Signup TODO</div>} />
-        <Route path="/signup/institution" element={<div>Institution Signup TODO</div>} />
+        <Route path="/signup/applicant" element={<SignupApplicant />} />
+        <Route path="/signup/employer" element={<SignupEmployer />} />
+        <Route path="/signup/institution" element={<SignupInstitution />} />
+        <Route path="/signup/success/:role" element={<SuccessPending />} />
+
+        {/* Institution */}
+        <Route path="/institution/upload" element={<UploadCertificate />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

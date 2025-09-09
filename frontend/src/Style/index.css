@@ -63,3 +63,45 @@
   .badge-warning { @apply bg-amber-500/10   text-amber-600; }
   .badge-error   { @apply bg-rose-500/10    text-rose-600; }
 }
+/* ---------- Auth layout & form kit ---------- */
+@layer components {
+  .auth-hero { @apply bg-surface min-h-[calc(100vh-72px)] py-10 md:py-14; }
+  .auth-wrap { @apply max-w-6xl mx-auto px-4; }
+
+  .auth-title { @apply text-3xl md:text-4xl font-extrabold leading-tight mb-2; }
+  .auth-sub { @apply text-base md:text-lg text-muted mb-8; }
+
+  .auth-card { @apply rounded-2xl bg-white shadow-md border border-border p-6 md:p-8; }
+  .auth-grid { @apply grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10; }
+
+  .form-label { @apply block text-sm font-medium text-gray-800 mb-2; }
+  .form-input {
+    @apply w-full rounded-xl border border-border bg-white px-4 py-2.5
+           text-gray-900 placeholder:text-gray-400 outline-none
+           focus:ring-2 focus:ring-brand-600/30 focus:border-brand-600;
+  }
+  .form-error { @apply mt-1 text-sm text-rose-600; }
+  .text-muted { @apply text-gray-500; }
+
+  .form-actions { @apply mt-6 flex items-center justify-between; }
+
+
+  .upload-icon { @apply mb-1 opacity-70; }
+
+  /* Badges & buttons already exist, keeping your names */
+  .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
+  .badge-success { @apply bg-emerald-500/10 text-emerald-600; }
+
+  /* Auth header spacing helpers (if you use them elsewhere) */
+  .auth-hero .auth-title span { @apply text-brand-600; }
+}
+/* Upload box — dashed border; change color on hover only */
+.upload-box {
+  @apply mt-2 flex flex-col items-center justify-center gap-2
+         rounded-xl border-2 border-dashed border-border bg-white px-6 py-10
+         text-center cursor-pointer
+         hover:border-brand-600 transition-colors;
+}
+.upload-box input[type="file"] {
+  @apply absolute w-0 h-0 overflow-hidden;
+}
