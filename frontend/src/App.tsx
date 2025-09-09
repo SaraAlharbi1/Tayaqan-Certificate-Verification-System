@@ -5,6 +5,12 @@ import AboutPage from "./pages/AboutUsPage";
 import HowItWorksPage from "./pages/HowItWorksPage";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
+import ApplicantPage from "./Pages/ApplicantRole/ApplicantPage";
+import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
+import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
+import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
+
+
 
 /**
  * App.tsx
@@ -36,10 +42,26 @@ export default function App() {
 
         {/* How it works page */}
         <Route path="/how-it-works" element={<HowItWorksPage />} />
+        
 
         {/* Login page */}
         <Route path="/login" element={<LoginPage />} />
 
+         {/* Applicant page*/}
+
+       <Route path="/ApplicantPage" element={<ApplicantPage />} />
+
+        {/* certificates page*/}
+
+       <Route path="/applicant/certificates" element={<MyCertificatesPage />} />
+
+       {/* Access Requests Page*/}
+       <Route path="/applicant/requests" element={<AccessReqused />} />
+
+        {/*Select Certificate Page*/}
+       <Route path="/applicant/requests/:requestId" element={<AccessCertificates />} />
+
+         
         {/* Signup flow */}
         <Route path="/signup" element={<SignupSelectionPage />} />
         <Route path="/signup/applicant" element={<div>Applicant Signup TODO</div>} />
