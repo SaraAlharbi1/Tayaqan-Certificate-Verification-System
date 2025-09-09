@@ -5,7 +5,12 @@ import AboutPage from "./pages/AboutUsPage";
 import HowItWorksPage from "./pages/HowItWorksPage";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
-
+import SignupInstitution from "./pages/auth/SignupInstitution"; // Add this import
+import SignupApplicant from "./Pages/auth/SignupApplicant";
+import SignupEmployer from "./Pages/auth/SignupEmployer";
+import SuccessPending from "@/pages/auth/SuccessPending";
+//InstitutionRole
+import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
 /**
  * App.tsx
  *
@@ -42,13 +47,17 @@ export default function App() {
 
         {/* Signup flow */}
         <Route path="/signup" element={<SignupSelectionPage />} />
-        <Route path="/signup/applicant" element={<div>Applicant Signup TODO</div>} />
-        <Route path="/signup/employer" element={<div>Employer Signup TODO</div>} />
-        <Route path="/signup/institution" element={<div>Institution Signup TODO</div>} />
+        <Route path="/signup/applicant" element={<SignupApplicant />} />
+        <Route path="/signup/employer" element={<SignupEmployer />} />
+        <Route path="/signup/institution" element={<SignupInstitution />} /> {/* Use your real component here */}
+        <Route path="/signup/success/:role" element={<SuccessPending />} />
+        {/* InstitutionRole*/}
+        <Route path="/institution/upload" element={<UploadCertificate />} />
 
         {/* Fallback: redirect any unknown route to Home */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </PublicLayout>
+    </PublicLayout> 
+
   );
 }
