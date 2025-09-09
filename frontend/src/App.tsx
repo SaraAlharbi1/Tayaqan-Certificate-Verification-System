@@ -5,7 +5,10 @@ import AboutPage from "./pages/AboutUsPage";
 import HowItWorksPage from "./pages/HowItWorksPage";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
-
+import AccessRequests from "./Pages/EmployerRole/AccessRequests";
+import CreateAccessRequest from "./Pages/EmployerRole/CreateAccessRequest";
+import ApplicantSharedCertificates from "./Pages/EmployerRole/ApplicantSharedCertificates";
+import CertificateDetailsPage from "./Pages/EmployerRole/CertificateDetails";
 /**
  * App.tsx
  *
@@ -43,11 +46,16 @@ export default function App() {
         {/* Signup flow */}
         <Route path="/signup" element={<SignupSelectionPage />} />
         <Route path="/signup/applicant" element={<div>Applicant Signup TODO</div>} />
-        <Route path="/signup/employer" element={<div>Employer Signup TODO</div>} />
         <Route path="/signup/institution" element={<div>Institution Signup TODO</div>} />
+
 
         {/* Fallback: redirect any unknown route to Home */}
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/AccessRequests" element={<AccessRequests />} />
+        <Route path="/employer/access/new" element={<CreateAccessRequest />} />
+        <Route path="/employer/applicants/:applicantId/shared" element={<ApplicantSharedCertificates />} />
+        <Route path="/employer/certificates/:certificateId" element={<CertificateDetailsPage />} />
+        
       </Routes>
     </PublicLayout>
   );

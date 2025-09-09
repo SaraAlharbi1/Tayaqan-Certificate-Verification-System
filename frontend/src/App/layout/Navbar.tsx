@@ -1,6 +1,6 @@
 // src/components/Navbar.tsx
 import { NavLink } from "react-router-dom";
-import NavbarWave from "@/assets/navbar-wave.png";
+import NavbarWave from "../../assets/navbar-wave.png";
 
 type Props = { dense?: boolean }; // optional flag to render a more compact navbar
 

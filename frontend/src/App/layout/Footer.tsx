@@ -1,4 +1,4 @@
-import FooterWave from "@/assets/footer-wave.png";
+import FooterWave from "../../assets/footer-wave.png";
 import { Twitter, Instagram } from "lucide-react";
 
 /**
