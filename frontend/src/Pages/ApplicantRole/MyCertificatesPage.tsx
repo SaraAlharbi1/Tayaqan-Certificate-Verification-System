@@ -1,4 +1,6 @@
+// src/Pages/ApplicantRole/CertificatesPage.tsx
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 type Certificate = {
   id: number;
@@ -9,7 +11,6 @@ type Certificate = {
 };
 
 export default function CertificatesPage() {
-  // -------- Mock data (بدل الـ Backend مؤقتاً) ----------
   const [certificates] = useState<Certificate[]>([
     { id: 1, title: "Blockchain Fundamentals", issuer: "Univ. of Technology", issueDate: "2024-06-15", serial: "1234567" },
     { id: 2, title: "Data Science Essentials", issuer: "Univ. of Technology", issueDate: "2023-09-20", serial: "2468100" },
@@ -17,11 +18,9 @@ export default function CertificatesPage() {
     { id: 4, title: "Web Development", issuer: "Online institute", issueDate: "2023-09-29", serial: "5436900" },
   ]);
 
-  // -------- Search --------
   const [search, setSearch] = useState("");
-  const [q, setQ] = useState(""); 
+  const [q, setQ] = useState("");
 
-  // debounce 350ms
   useEffect(() => {
     const t = setTimeout(() => setQ(search.trim().toLowerCase()), 350);
     return () => clearTimeout(t);
@@ -29,48 +28,48 @@ export default function CertificatesPage() {
 
   const filtered = useMemo(() => {
     if (!q) return certificates;
-    return certificates.filter((c) => {
-      return (
-        c.title.toLowerCase().includes(q) ||
-        c.issuer.toLowerCase().includes(q) ||
-        c.serial.toLowerCase().includes(q)
-      );
-    });
+    return certificates.filter((c) =>
+      c.title.toLowerCase().includes(q) ||
+      c.issuer.toLowerCase().includes(q) ||
+      c.serial.toLowerCase().includes(q)
+    );
   }, [q, certificates]);
 
   return (
-    <section className="bg-gradient-to-b from-white to-surface px-6 py-12">
+    // شيلنا الـpy الكثيرة وخلينا pt-4 فقط
+    <section className="px-6 pt-4 pb-8">
       <div className="mx-auto max-w-6xl">
-        <h1 className="text-3xl font-bold text-left mb-6 text-blue-900">
+        {/* العنوان */}
+        <h1 className="text-3xl md:text-4xl font-bold text-blue-900 mb-6">
           My Certificates
         </h1>
 
-      {/* Search Bar */}
-<div className="mb-6 w-full">
-  <div className="relative">
-    <input
-      type="text"
-      value={search}
-      onChange={(e) => setSearch(e.target.value)}
-      placeholder="Search"
-      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 pr-20 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
-    />
-    {search && (
-      <button
-        onClick={() => setSearch("")}
-        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
-      >
-        Clear
-      </button>
-    )}
-  </div>
-  <p className="mt-2 text-sm text-slate-500">
-    Showing {filtered.length} of {certificates.length}
-  </p>
-</div>
+        {/* شريط البحث */}
+        <div className="mb-4 w-full">
+          <div className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 pr-20 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-sm text-slate-500">
+            Showing {filtered.length} of {certificates.length}
+          </p>
+        </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto rounded-2xl shadow bg-white">
+        {/* الجدول */}
+        <div className="overflow-x-auto rounded-2xl bg-white shadow">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-gray-100 text-left text-sm font-semibold text-gray-600">
@@ -91,9 +90,12 @@ export default function CertificatesPage() {
                   </td>
                   <td className="px-6 py-4">{c.serial}</td>
                   <td className="px-6 py-4">
-                    <button className="px-4 py-1 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">
+                    <Link
+                      to={`/applicant/certificates/${c.id}`}
+                      className="inline-block px-4 py-1 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
+                    >
                       View
-                    </button>
+                    </Link>
                   </td>
                 </tr>
               ))}
