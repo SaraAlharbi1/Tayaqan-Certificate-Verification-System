@@ -1,22 +1,20 @@
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 /** --- Validation --- */
 const MAX_FILE_MB = 5;
 const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
-const nationalIdRegex = /^\d{10}$/;         // adjust to your rule
-const phoneRegex = /^(\+?\d{8,15})$/;       // optional +, 8–15 digits
+const nationalIdRegex = /^\d{10}$/;
 
 const schema = z.object({
   nationalId: z.string().regex(nationalIdRegex, "Enter a valid National ID (10 digits)"),
   fullName: z.string().min(2, "Full name is required"),
   title: z.string().min(2, "Certificate title is required"),
-  issueDate: z.string().min(1, "Issue date is required"), // keep as string; backend can parse
+  issueDate: z.string().min(1, "Issue date is required"),
   serialNumber: z.string().min(1, "Serial number is required"),
-  // optional: phone if you want it here
-  // phone: z.string().regex(phoneRegex, "Enter a valid phone number (8–15 digits, optional +)"),
   file: z
     .any()
     .refine((v) => v instanceof FileList && v.length === 1, { message: "Please upload a PDF" })
