@@ -1,17 +1,28 @@
 // src/pages/institution/InstitutionDashboard.tsx
+// ----------------------------------------------------------------------------
+// InstitutionDashboard
+// - Lists issued certificates for an institution.
+// - Title is outside the white card and spacing is tightened toward the navbar.
+// - Simple client-side search filters by applicant name, certificate title, or ID.
+// - Replace MOCK data with an API call when backend is ready.
+// ----------------------------------------------------------------------------
+
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-/** Row shape for an uploaded certificate */
+/** Row shape for table items (align with backend DTO when available). */
 type Row = {
-  certificateId: string;     // used in the route
+  certificateId: string; // unique; used for routing to details
   applicantName: string;
   nationalId: string;
   title: string;
-  issueDate: string;         // e.g., "15-06-2024"
+  issueDate: string;     // format: DD-MM-YYYY (consider normalizing later)
 };
 
-/** Mock data (replace with API call) */
+/**
+ * Temporary mock data
+ * TODO: swap with GET /institution/certificates (or similar) and handle loading/error states.
+ */
 const MOCK: Row[] = [
   { certificateId: "cert-1001", applicantName: "Rawan Mohammed", nationalId: "1234567", title: "Blockchain Technology", issueDate: "15-06-2024" },
   { certificateId: "cert-1002", applicantName: "Fatima Rajh",    nationalId: "2468100", title: "Data Science Essentials", issueDate: "20-09-2023" },
@@ -20,9 +31,15 @@ const MOCK: Row[] = [
 ];
 
 export default function InstitutionDashboard() {
+  /** Search query state (bound to the search input). */
   const [q, setQ] = useState("");
 
-  // Simple client-side search over name/title/nationalId
+  /**
+   * Filter rows on the client.
+   * - Lowercases name/title for case-insensitive match.
+   * - National ID check is kept as string includes().
+   * - For large datasets, move search to the API (query params) and paginate.
+   */
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return MOCK;
@@ -34,13 +51,26 @@ export default function InstitutionDashboard() {
   }, [q]);
 
   return (
-    <section className="auth-hero">
+    /**
+     * Section spacing:
+     * - We deliberately avoid the global `.auth-hero` large top padding here.
+     * - `pt-6 md:pt-8` pulls the content closer to the navbar as requested.
+     * - If your project requires consistent wrappers, consider a prop-driven layout.
+     */
+    <section className="pt-2 md:pt-3 -mt-6 md:-mt-10 pb-10">
       <div className="auth-wrap">
-        {/* Big white card like your screenshot */}
-        <div className="auth-card">
-          <h1 className="text-2xl font-bold mb-6">Home</h1>
+        {/**
+         * Page title OUTSIDE the card so it visually sits above the card.
+         * `mb-4` keeps the title close to the table card.
+         */}
+        <h1 className="text-3xl font-extrabold tracking-tight mb-4">Home</h1>
 
-          {/* Search bar */}
+        {/**
+         * White card that contains search and the table.
+         * `mt-0` ensures no extra gap between title and card.
+         */}
+        <div className="auth-card mt-0">
+          {/* Search bar (a11y: label is visually hidden but screen-reader friendly) */}
           <div className="mb-6">
             <label htmlFor="search" className="sr-only">Search</label>
             <input
@@ -52,7 +82,7 @@ export default function InstitutionDashboard() {
             />
           </div>
 
-          {/* Table */}
+          {/* Responsive table container with subtle border/shadow */}
           <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -75,10 +105,15 @@ export default function InstitutionDashboard() {
                       <td className="px-4 py-3">{r.nationalId}</td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end">
-                          {/* ⤵️ opens the shared details page */}
+                          {/*
+                            Details route:
+                            - Using employer path per current app structure.
+                            - `state.from` can help the details page build a Back link.
+                            - Consider switching to an institution-specific details route when ready.
+                          */}
                           <Link
                             to={`/employer/certificates/${encodeURIComponent(r.certificateId)}`}
-                            state={{ from: "/institution/dashboard" }} 
+                            state={{ from: "/institution/dashboard" }}
                             className="btn btn-outline"
                           >
                             View
@@ -88,6 +123,7 @@ export default function InstitutionDashboard() {
                     </tr>
                   ))}
 
+                  {/* Empty-state row (shown when search returns no matches) */}
                   {rows.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
