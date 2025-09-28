@@ -1,28 +1,22 @@
 // src/Pages/EmployerRole/CertificateDetails.tsx
 import { useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation } from "react-router-dom";
 
-/** Shape of a certificate detail record (mocked for now). */
 type CertificateDetails = {
   id: string;
   title: string;
   issuer: string;
   issueDate: string;
   serial: string;
-
-  // On-chain / proof fields
-  contract: string;      // contract address
-  etherscan: string;     // etherscan url for contract/tx
-  hash: string;          // on-chain record hash (e.g., metadata hash)
-  blockTime: string;     // display time
-  fileHash: string;      // off-chain file hash (e.g., IPFS CID or SHA256)
+  contract: string;
+  etherscan: string;
+  hash: string;
+  blockTime: string;
+  fileHash: string;
   status: "Valid" | "Revoked";
-
-  // PDF
   pdfUrl: string;
 };
 
-/** Demo DB keyed by certificateId from the list view. */
 const MOCK_CERTS: Record<string, CertificateDetails> = {
   "ml-basics-001": {
     id: "ml-basics-001",
@@ -63,6 +57,9 @@ export default function CertificateDetailsPage() {
   const { certificateId = "" } = useParams<{ certificateId: string }>();
   const cert = useMemo(() => MOCK_CERTS[certificateId], [certificateId]);
 
+  const location = useLocation();
+  const backTo = (location.state as any)?.from || "/AccessRequests";
+
   if (!cert) {
     return (
       <section className="mx-auto max-w-4xl px-6 py-16">
@@ -70,17 +67,15 @@ export default function CertificateDetailsPage() {
         <p className="text-gray-600 mb-6">
           We couldn’t find details for the requested certificate.
         </p>
-        <Link to="/signup/employer" className="btn btn-primary">Back to Access Requests</Link>
+        <Link to={backTo} className="btn btn-primary">Go back</Link>
       </section>
     );
   }
 
   return (
     <section className="mx-auto max-w-5xl px-6 pt-10 pb-24">
-      {/* Title */}
       <h1 className="text-2xl font-bold mb-6">{cert.title}</h1>
 
-      {/* Table of shared certificates (top list) */}
       <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm mb-8">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -101,12 +96,7 @@ export default function CertificateDetailsPage() {
                 <td className="px-4 py-3">{cert.serial}</td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end">
-                    <a
-                      href={cert.pdfUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn btn-secondary"
-                    >
+                    <a href={cert.pdfUrl} target="_blank" rel="noreferrer" className="btn btn-secondary">
                       View
                     </a>
                   </div>
@@ -117,21 +107,14 @@ export default function CertificateDetailsPage() {
         </div>
       </div>
 
-      {/* Blockchain Proof card */}
       <div className="rounded-xl border border-black/10 bg-white shadow-sm p-6 md:p-8">
         <h2 className="font-semibold text-brand-700 mb-4">Blockchain Proof</h2>
 
         <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-3">
           <dt className="text-gray-500">Contract:</dt>
           <dd className="sm:col-span-2">
-            {truncate(cert.contract)}
-            {"  "}
-            <a
-              href={cert.etherscan}
-              target="_blank"
-              rel="noreferrer"
-              className="text-brand-600 hover:underline ml-2"
-            >
+            {truncate(cert.contract)}{" "}
+            <a href={cert.etherscan} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline ml-2">
               [View on Etherscan]
             </a>
           </dd>
@@ -154,12 +137,7 @@ export default function CertificateDetailsPage() {
         </dl>
 
         <div className="mt-6 flex justify-end">
-          <a
-            href={cert.pdfUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-primary"
-          >
+          <a href={cert.pdfUrl} target="_blank" rel="noreferrer" className="btn btn-primary">
             View PDF
           </a>
         </div>
