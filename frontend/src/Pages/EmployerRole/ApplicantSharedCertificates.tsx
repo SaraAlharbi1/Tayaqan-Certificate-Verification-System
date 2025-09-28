@@ -75,6 +75,7 @@ export default function ApplicantSharedCertificates() {
                     <div className="flex justify-end">
                       <Link
                         to={`/employer/certificates/${c.id}`}
+                        state={{ from: location.pathname }} 
                         className="btn btn-secondary"
                       >
                         View

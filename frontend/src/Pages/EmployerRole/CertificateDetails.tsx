@@ -1,6 +1,6 @@
 // src/Pages/EmployerRole/CertificateDetails.tsx
 import { useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useLocation } from "react-router-dom";
 
 /** Shape of a certificate detail record (mocked for now). */
 type CertificateDetails = {
@@ -62,6 +62,8 @@ function truncate(s: string, left = 6, right = 4) {
 export default function CertificateDetailsPage() {
   const { certificateId = "" } = useParams<{ certificateId: string }>();
   const cert = useMemo(() => MOCK_CERTS[certificateId], [certificateId]);
+  const location = useLocation();
+  const backTo = (location.state as any)?.from || "/AccessRequests";
 
   if (!cert) {
     return (
@@ -70,7 +72,7 @@ export default function CertificateDetailsPage() {
         <p className="text-gray-600 mb-6">
           We couldn’t find details for the requested certificate.
         </p>
-        <Link to="/signup/employer" className="btn btn-primary">Back to Access Requests</Link>
+        <Link to={backTo} className="btn btn-primary">Go back </Link>
       </section>
     );
   }

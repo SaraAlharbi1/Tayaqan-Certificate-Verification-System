@@ -30,6 +30,8 @@ import SignupEmployer from "./Pages/auth/SignupEmployer";
 
 // Institution role
 import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
+import UploadSuccess from "./Pages/InstitutionRole/UploadSuccess"; 
+import InstitutionDashboard from "./Pages/InstitutionRole/InstitutionDashboard";
 
 export default function App() {
   return (
@@ -62,6 +64,9 @@ export default function App() {
 
         {/* Institution */}
         <Route path="/institution/upload" element={<UploadCertificate />} />
+        <Route path="/institution/upload/success/:applicantId" element={<UploadSuccess />}/>
+        <Route path="/institution/dashboard" element={<InstitutionDashboard />} />
+
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
