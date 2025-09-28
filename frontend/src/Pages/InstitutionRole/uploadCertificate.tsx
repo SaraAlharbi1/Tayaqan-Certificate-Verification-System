@@ -1,3 +1,4 @@
+// src/Pages/InstitutionRole/UploadCertificate.tsx
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -22,18 +23,14 @@ const schema = z.object({
   serialNumber: z.string().min(1, "Serial number is required"),
   file: z
     .any()
-    // must upload exactly one file
     .refine((v) => v instanceof FileList && v.length === 1, { message: "Please upload a PDF" })
-    // must be PDF by MIME or filename (for some browsers)
     .refine((files) => {
       const f = (files as FileList).item(0);
-      if (!f) return false;
-      return f.type === "application/pdf" || isPdfByName(f.name);
+      return f && (f.type === "application/pdf" || isPdfByName(f.name));
     }, { message: "Only PDF files are accepted" })
-    // size limit
     .refine((files) => {
       const f = (files as FileList).item(0);
-      return !!f && f.size <= MAX_FILE_MB * 1024 * 1024;
+      return f && f.size <= MAX_FILE_MB * 1024 * 1024;
     }, { message: `File must be ≤ ${MAX_FILE_MB}MB` }),
 });
 
@@ -68,10 +65,10 @@ function UploadIllustration() {
   - Two-column form: left = text fields, right = PDF uploader.
   - Drag & drop supported (label area).
   - Uses fetch() with multipart/form-data; credentials included for auth cookie.
-  - On success: resets the form and shows a simple alert.
+  - On success: resets the form and navigates to success page.
 ----------------------------------------------------------------------------- */
 export default function UploadCertificate() {
-  // Raw <input type="file"> ref so we can clear the native value
+  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // UI state derived outside RHF for convenience (selected filename + custom error)
@@ -88,29 +85,24 @@ export default function UploadCertificate() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    mode: "onChange", // validate as user types/selects
+    mode: "onChange",
   });
 
   /** Clear the file selection both in RHF and the native input */
   const clearFile = () => {
     setUploadName("");
     setFileError("");
-    // Create an empty FileList and set it into RHF
     const empty = new DataTransfer().files;
     setValue("file", empty, { shouldValidate: true });
-    // Also clear the real input value
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   /** Central handler to validate a selected file list and set into RHF */
   const onSelectFile = (files: FileList | null) => {
-    if (!files || files.length === 0) {
-      clearFile();
-      return;
-    }
+    if (!files?.length) return clearFile();
     const f = files[0];
 
-    // Type check: accept real pdf MIME or filename “.pdf” fallback
+    // Type check
     const looksPdf = f.type === "application/pdf" || isPdfByName(f.name);
     if (!looksPdf) {
       setFileError("Only PDF files are accepted");
@@ -125,7 +117,7 @@ export default function UploadCertificate() {
       return;
     }
 
-    // Success: remember name, clear error, push to RHF
+    // Success
     setUploadName(f.name);
     setFileError("");
     setValue("file", files, { shouldValidate: true });
@@ -145,32 +137,31 @@ export default function UploadCertificate() {
   /** Submit handler: builds FormData and POSTs to backend */
   const onSubmit = async (v: FormValues) => {
     const fd = new FormData();
-    // Map frontend field names to backend parameter names
     fd.append("national_id", v.nationalId);
     fd.append("full_name", v.fullName);
     fd.append("title", v.title);
     fd.append("issue_date", v.issueDate);
     fd.append("serial_number", v.serialNumber);
-    fd.append("file", v.file[0]); // first (and only) file
+    fd.append("file", v.file[0]);
 
     try {
-      // TODO: replace with your real API base (e.g., `${API}/institutions/certificates/`)
       const res = await fetch("/institutions/certificates/", {
         method: "POST",
         body: fd,
-        credentials: "include", // send httpOnly refresh/auth cookies
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error(await res.text().catch(() => "Upload failed"));
 
-      // Minimal success UX (could be a toast in your design system)
+      // Reset fields
       clearFile();
       setValue("nationalId", "" as any);
       setValue("fullName", "" as any);
       setValue("title", "" as any);
       setValue("issueDate", "" as any);
       setValue("serialNumber", "" as any);
-      alert("Certificate uploaded successfully");
+
+      navigate("/institution/upload/success/" + v.nationalId);
     } catch (e) {
       console.error(e);
       setFileError("Upload failed. Please try again.");
@@ -180,7 +171,6 @@ export default function UploadCertificate() {
   return (
     <section className="auth-hero">
       <div className="auth-wrap">
-        {/* Title & subtitle (consistent with your auth page style) */}
         <h1 className="auth-title">
           Upload New <span className="text-brand-600">Certificate</span>
         </h1>
@@ -188,7 +178,6 @@ export default function UploadCertificate() {
           <span className="text-brand-600">Certificate</span> Details
         </p>
 
-        {/* The form is rendered inside the white card container */}
         <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting}>
           <div className="auth-grid">
             {/* ================= LEFT column: text inputs ================= */}
@@ -296,7 +285,6 @@ export default function UploadCertificate() {
                   ref={fileInputRef}
                   style={{ display: "none" }}
                   {...register("file")}
-                  // Allow selecting the same file twice by resetting value on click
                   onClick={(e) => { (e.currentTarget as HTMLInputElement).value = ""; }}
                   onChange={(e) => onSelectFile(e.target.files)}
                 />
@@ -322,7 +310,7 @@ export default function UploadCertificate() {
                 )}
               </div>
 
-              {/* Submit button (aligned right to match card actions style) */}
+              {/* Submit button */}
               <div className="form-actions justify-end">
                 <button type="submit" className="btn btn-primary min-w-32" disabled={isSubmitting}>
                   {isSubmitting ? "Uploading…" : "Upload"}

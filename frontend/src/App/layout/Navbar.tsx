@@ -61,16 +61,11 @@ export default function Navbar({ dense = false, role: roleProp }: Props) {
         alt=""
         className="absolute inset-0 w-full h-auto pointer-events-none select-none"
       />
-
       <div className="relative z-10">
         <nav
-          className={`mx-auto max-w-6xl px-6 ${padTop} ${padBottom}
-                      flex items-center justify-between gap-6`}
+          className={`mx-auto max-w-6xl px-6 ${padTop} ${padBottom} flex items-center justify-between gap-6`}
         >
-          {/* Left spacer (was logo) to keep center perfectly centered */}
           <div className="w-28" />
-
-          {/* Center: role-based links */}
           <div className="flex-1 flex justify-center gap-8 md:gap-12 text-lg md:text-xl font-semibold">
             {LINKS[role].map(({ to, label, end }) => (
               <NavLink
@@ -83,8 +78,6 @@ export default function Navbar({ dense = false, role: roleProp }: Props) {
               </NavLink>
             ))}
           </div>
-
-          {/* Right spacer */}
           <div className="w-28" />
         </nav>
       </div>

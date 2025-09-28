@@ -1,51 +1,51 @@
-
-import EducationalLogo from "@/assets/Educational-logo.png";
+// src/Pages/ApplicantRole/ApplicantPage.tsx
 import { Link } from "react-router-dom";
-
+import CertificateLogo from "@/assets/Educational-logo.png";
 
 export default function ApplicantPage() {
   return (
-    <section className="bg-gradient-to-b from-white to-surface px-6 py-12">
-   
-      <h1 className="text-3xl md:text-4xl font-bold text-left mb-10">
-        Get Started <span className="text-blue-900">Now.</span>
+    <section className="max-w-6xl mx-auto px-6 py-10">
+      {/* العنوان */}
+      <h1 className="text-3xl md:text-4xl font-bold mb-10">
+        Get Started <span className="text-indigo-700">Now.</span>
       </h1>
 
-      
-      <div className="grid gap-8 md:grid-cols-2 max-w-4xl mx-auto">
+      {/* الكروت */}
+      <div className="grid gap-8 md:grid-cols-2">
         {/* My Certificates */}
-        <div className="group relative rounded-2xl border border-black/5 bg-white/90 shadow-md hover:-translate-y-0.5 hover:shadow-lg transition">
-          <div className="flex flex-col items-center justify-center p-8">
-            <img
-              src={EducationalLogo}
-              alt="Certificates"
-              className="h-16 w-16 mb-4"
-            />
-            <h3 className="text-2xl font-bold text-blue-900 mb-6">
-              My Certificates
-            </h3>
-            
-          <Link to="/applicant/certificates" className="btn btn-primary">
+        <div className="group rounded-2xl border border-black/5 bg-white shadow-md transition hover:-translate-y-1 hover:shadow-lg p-6 text-center">
+          <img
+            src={CertificateLogo}
+            alt="Certificates"
+            className="mx-auto mb-4 h-12 w-12"
+          />
+          <h3 className="text-xl font-bold text-indigo-900 mb-6">
+            My Certificates
+          </h3>
+          <Link
+            to="/applicant/certificates"
+            className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+          >
             View
-           </Link>
-          </div>
+          </Link>
         </div>
 
         {/* Access Requests */}
-        <div className="group relative rounded-2xl border border-black/5 bg-white/90 shadow-md hover:-translate-y-0.5 hover:shadow-lg transition">
-          <div className="flex flex-col items-center justify-center p-8">
-            <img
-              src={EducationalLogo}
-              alt="Access Requests"
-              className="h-16 w-16 mb-4"
-            />
-            <h3 className="text-2xl font-bold text-blue-900 mb-6">
-              Access Requests
-            </h3>
-            
-            <Link to="/applicant/requests" className="btn btn-primary">View</Link>
-
-          </div>
+        <div className="group rounded-2xl border border-black/5 bg-white shadow-md transition hover:-translate-y-1 hover:shadow-lg p-6 text-center">
+          <img
+            src={CertificateLogo}
+            alt="Access Requests"
+            className="mx-auto mb-4 h-12 w-12"
+          />
+          <h3 className="text-xl font-bold text-indigo-900 mb-6">
+            Access Requests
+          </h3>
+          <Link
+            to="/applicant/requests"
+            className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+          >
+            View
+          </Link>
         </div>
       </div>
     </section>

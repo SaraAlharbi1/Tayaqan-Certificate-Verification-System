@@ -24,13 +24,13 @@ import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
 import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
 
-// Employer/Applicant signup pages (if present in your repo)
+// Employer/Applicant signup pages (if present)
 import SignupApplicant from "./Pages/auth/SignupApplicant";
 import SignupEmployer from "./Pages/auth/SignupEmployer";
 
 // Institution role
 import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
-import UploadSuccess from "./Pages/InstitutionRole/UploadSuccess"; 
+import UploadSuccess from "./Pages/InstitutionRole/UploadSuccess";
 import InstitutionDashboard from "./Pages/InstitutionRole/InstitutionDashboard";
 
 export default function App() {
@@ -52,7 +52,7 @@ export default function App() {
         {/* Employer */}
         <Route path="/AccessRequests" element={<AccessRequests />} />
         <Route path="/employer/access/new" element={<CreateAccessRequest />} />
-        <Route path="/employer/applicants/:applicantId/shared" element={<ApplicantSharedCertificates />} />
+        <Route path="/employer/applicents/:applicantId/shared" element={<ApplicantSharedCertificates />} />
         <Route path="/employer/certificates/:certificateId" element={<CertificateDetailsPage />} />
 
         {/* Signup */}
@@ -64,9 +64,8 @@ export default function App() {
 
         {/* Institution */}
         <Route path="/institution/upload" element={<UploadCertificate />} />
-        <Route path="/institution/upload/success/:applicantId" element={<UploadSuccess />}/>
+        <Route path="/institution/upload/success/:applicantId" element={<UploadSuccess />} />
         <Route path="/institution/dashboard" element={<InstitutionDashboard />} />
-
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
