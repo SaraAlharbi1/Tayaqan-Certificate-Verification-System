@@ -25,16 +25,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract TayaqanCertificate is Ownable {
     /* ERRORS */
 
-    /// @notice Thrown when attempting to issue a certificate that already exists
+    // @notice Thrown when attempting to issue a certificate that already exists
     error AlreadyIssued();
-
-    /// @notice Thrown when trying to access a certificate that doesn't exist
+    // @notice Thrown when trying to access a certificate that doesn't exist
     error NotFound();
-
-    /// @notice Thrown when attempting to revoke an already revoked certificate
+    // @notice Thrown when attempting to revoke an already revoked certificate
     error AlreadyRevoked();
-
-    /// @notice Thrown when trying to approve access to a revoked certificate
+    // @notice Thrown when trying to approve access to a revoked certificate
     error CertIsRevoked();
 
     /* DATA STRUCTURES */
