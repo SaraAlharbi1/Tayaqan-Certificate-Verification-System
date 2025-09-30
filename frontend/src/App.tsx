@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Routes, Route, Navigate } from "react-router-dom";
 import PublicLayout from "./App/layout/PublicLayout";
 
@@ -24,7 +25,7 @@ import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
 import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
 
-// Signup (if present)
+// Employer/Applicant signup pages (if present)
 import SignupApplicant from "./Pages/auth/SignupApplicant";
 import SignupEmployer from "./Pages/auth/SignupEmployer";
 
@@ -46,10 +47,14 @@ const normalizeRole = (r?: string): Role => {
 // default first-link per role (keep in sync with your Navbar LINKS)
 const defaultPathForRole = (role: Role) => {
   switch (role) {
-    case "institution": return "/institution/dashboard";
-    case "employer":    return "/employer/access-requests";
-    case "applicant":   return "/applicant"; // or "/applicant/certificates"
-    default:            return "/public-home";
+    case "institution":
+      return "/institution/dashboard";
+    case "employer":
+      return "/employer/access-requests";
+    case "applicant":
+      return "/applicant"; // or "/applicant/certificates"
+    default:
+      return "/public-home";
   }
 };
 
@@ -71,7 +76,7 @@ export default function App() {
         {/* SMART ROOT */}
         <Route path="/" element={<RootSmart />} />
 
-        {/* Public (direct links, if you still want them) */}
+        {/* Public */}
         <Route path="/public-home" element={<HomePage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/how-it-works" element={<HowItWorksPage />} />
@@ -83,11 +88,17 @@ export default function App() {
         <Route path="/applicant/requests" element={<AccessReqused />} />
         <Route path="/applicant/requests/:requestId" element={<AccessCertificates />} />
 
-        {/* Employer — use canonical lowercase paths */}
+        {/* Employer — canonical lowercase paths */}
         <Route path="/employer/access-requests" element={<AccessRequests />} />
         <Route path="/employer/access/new" element={<CreateAccessRequest />} />
-        <Route path="/employer/applicants/:applicantId/shared" element={<ApplicantSharedCertificates />} />
-        <Route path="/employer/certificates/:certificateId" element={<CertificateDetailsPage />} />
+        <Route
+          path="/employer/applicants/:applicantId/shared"
+          element={<ApplicantSharedCertificates />}
+        />
+        <Route
+          path="/employer/certificates/:certificateId"
+          element={<CertificateDetailsPage />}
+        />
         {/* legacy alias so old bookmarks still work */}
         <Route path="/AccessRequests" element={<Navigate to="/employer/access-requests" replace />} />
 

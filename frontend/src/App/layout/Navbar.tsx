@@ -72,8 +72,7 @@ export default function Navbar({ dense = false, role: roleProp }: Props) {
       />
       <div className="relative z-10">
         <nav
-          className={`mx-auto max-w-6xl px-6 ${padTop} ${padBottom}
-                      flex items-center justify-between gap-6`}
+          className={`mx-auto max-w-6xl px-6 ${padTop} ${padBottom} flex items-center justify-between gap-6`}
         >
           <div className="w-28" />
           <div className="flex-1 flex justify-center gap-8 md:gap-12 text-lg md:text-xl font-semibold">
