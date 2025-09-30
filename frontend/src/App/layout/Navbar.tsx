@@ -1,9 +1,47 @@
-// src/components/Navbar.tsx
 import { NavLink } from "react-router-dom";
 import { useMemo } from "react";
 import NavbarWave from "@/assets/navbar-wave.png";
 
-type Role = "public" | "institution" | "employer" | "applicant";
+export type Role = "public" | "institution" | "employer" | "applicant";
+
+export const normalizeRole = (r?: string): Role => {
+  const s = (r || "").toLowerCase();
+  if (s.includes("institution")) return "institution";
+  if (s.includes("employer") || s.includes("hr")) return "employer";
+  if (s.includes("applicant") || s.includes("student")) return "applicant";
+  return "public";
+};
+
+// ✅ Keep paths consistent; adjust to match your actual routes
+export const LINKS: Record<Role, { to: string; label: string; end?: boolean }[]> = {
+  public: [
+    { to: "/", label: "Home", end: true },
+    { to: "/about", label: "About us" },
+    { to: "/how-it-works", label: "How it works" },
+  ],
+  institution: [
+    { to: "/institution/dashboard", label: "Home", end: true },
+    { to: "/institution/upload", label: "Upload Certificates" },
+  ],
+  employer: [
+    // ⚠️ Use a single canonical path; earlier you had "/AccessRequests".
+    { to: "/employer/access-requests", label: "Home", end: true },
+    { to: "/employer/access/new", label: "Request Access" },
+  ],
+  applicant: [
+    // ⚠️ Consider normalizing "/ApplicantPage" to all-lowercase routes in your app.
+    { to: "/applicant", label: "Home", end: true },
+    { to: "/applicant/certificates", label: "My Certificates" },
+    { to: "/applicant/requests", label: "Access Requests" },
+  ],
+};
+
+// ✅ Exported helper: returns the FIRST link for the role
+export const getDefaultPathForRole = (roleLike?: string): string => {
+  const role = normalizeRole(roleLike);
+  const first = LINKS[role][0]?.to ?? "/";
+  return first;
+};
 
 type Props = {
   dense?: boolean;
@@ -15,44 +53,15 @@ export default function Navbar({ dense = false, role: roleProp }: Props) {
   const padTop = dense ? "pt-10 md:pt-14" : "pt-14 md:pt-20";
   const padBottom = dense ? "pb-16 md:pb-20" : "pb-28 md:pb-36";
 
-  const normalize = (r?: string): Role => {
-    const s = (r || "").toLowerCase();
-    if (s.includes("institution")) return "institution";
-    if (s.includes("employer") || s.includes("hr")) return "employer";
-    if (s.includes("applicant") || s.includes("student")) return "applicant";
-    return "public";
-  };
-
   const role = useMemo<Role>(() => {
-    if (roleProp) return normalize(String(roleProp));
+    if (roleProp) return normalizeRole(String(roleProp));
     try {
       const u = JSON.parse(localStorage.getItem("user") || "{}");
-      return normalize(u?.role);
+      return normalizeRole(u?.role);
     } catch {
       return "public";
     }
   }, [roleProp]);
-
-  const LINKS: Record<Role, { to: string; label: string; end?: boolean }[]> = {
-    public: [
-      { to: "/", label: "Home", end: true },
-      { to: "/about", label: "About us" },
-      { to: "/how-it-works", label: "How it works" },
-    ],
-    institution: [
-      { to: "/institution/dashboard", label: "Home", end: true },
-      { to: "/institution/upload", label: "Upload Certificates" },
-    ],
-    employer: [
-      { to: "/AccessRequests", label: "Home", end: true },
-      { to: "/employer/access/new", label: "Request Access" },
-    ],
-    applicant: [
-      { to: "/ApplicantPage", label: "Home", end: true },
-      { to: "/applicant/certificates", label: "My Certificates" },
-      { to: "/applicant/requests", label: "Access Requests" },
-    ],
-  };
 
   return (
     <header className={`relative text-white ${headerMargin}`}>

@@ -48,7 +48,7 @@ export default function CreateAccessRequest() {
 
       // Simple UX feedback for demo
       alert(`Access request sent for ID ${applicant.id}`);
-      navigate("/signup/employer"); // back to list page (adjust route if needed)
+      navigate("/Pages/EmployerRole/AccessRequests"); // back to list page (adjust route if needed)
     } catch (err) {
       alert("Failed to send request. Please try again.");
     } finally {

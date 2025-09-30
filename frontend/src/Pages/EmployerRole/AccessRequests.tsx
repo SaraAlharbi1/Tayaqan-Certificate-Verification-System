@@ -41,57 +41,60 @@ export default function AccessRequests() {
   const navigate = useNavigate(); 
 
   return (
-    <section className="mx-auto max-w-6xl px-6 pt-10 pb-20">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold">Access Requests</h1>
-        <Link to="/employer/access/new" className="btn btn-primary">
-          Create Access Request
-        </Link>
-      </div>
+  // align with navbar container & tuck closer under the wave
+  <section className="relative mx-auto max-w-6xl px-6 pt-2 md:pt-3 -mt-6 md:-mt-10 pb-20">
+    {/* Page title above the card */}
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+      <h1 className="text-3xl font-extrabold tracking-tight">Access Requests</h1>
+      <Link to="/employer/access/new" className="btn btn-primary">
+        Create Access Request
+      </Link>
+    </div>
 
-      <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <th className="px-4 py-3 text-left font-semibold">Applicant Name</th>
-                <th className="px-4 py-3 text-left font-semibold">ID</th>
-                <th className="px-4 py-3 text-left font-semibold">Status</th>
-              </tr>
-            </thead>
+    {/* Card */}
+    <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-gray-600">
+            <tr>
+              <th className="px-4 py-3 text-left font-semibold">Applicant Name</th>
+              <th className="px-4 py-3 text-left font-semibold">ID</th>
+              <th className="px-4 py-3 text-left font-semibold">Status</th>
+            </tr>
+          </thead>
 
-            {/* ✨ هنا التغيير */}
-            <tbody className="divide-y divide-gray-100">
-              {seed.map((r) => {
-                const isApproved = r.status === "Approved";
-                return (
-                  <tr
-                    key={r.id}
-                    className={`hover:bg-gray-50/60 ${
-                      isApproved ? "cursor-pointer" : "cursor-default"
-                    }`}
-                    onClick={() => {
-                      if (isApproved) navigate(`/employer/applicants/${r.id}/shared`);
-                    }}
-                    tabIndex={isApproved ? 0 : -1} // يسمح باستخدام الكيبورد
-                    onKeyDown={(e) => {
-                      if (isApproved && (e.key === "Enter" || e.key === " ")) {
-                        navigate(`/employer/applicants/${r.id}/shared`);
-                      }
-                    }}
-                  >
-                    <td className="px-4 py-3">{r.name}</td>
-                    <td className="px-4 py-3">{r.id}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={r.status} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+          <tbody className="divide-y divide-gray-100">
+            {seed.map((r) => {
+              const isApproved = r.status === "Approved";
+              return (
+                <tr
+                  key={r.id}
+                  className={`hover:bg-gray-50/60 ${
+                    isApproved ? "cursor-pointer" : "cursor-default"
+                  }`}
+                  onClick={() => {
+                    if (isApproved) navigate(`/employer/applicants/${r.id}/shared`);
+                  }}
+                  tabIndex={isApproved ? 0 : -1}
+                  onKeyDown={(e) => {
+                    if (isApproved && (e.key === "Enter" || e.key === " ")) {
+                      navigate(`/employer/applicants/${r.id}/shared`);
+                    }
+                  }}
+                >
+                  <td className="px-4 py-3">{r.name}</td>
+                  <td className="px-4 py-3">{r.id}</td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={r.status} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-    </section>
-  );
+    </div>
+  </section>
+);
+
 }
