@@ -1,26 +1,36 @@
+// src/App/layout/PublicLayout.tsx
 import { PropsWithChildren } from "react";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
 import { useLocation } from "react-router-dom";
 
-/**
- * PublicLayout
- *
- * - Wraps all public-facing pages with Navbar + Footer
- * - Detects current path using `useLocation`
- * - If route is `/login` or `/signup`, uses `dense` Navbar for less vertical space
- */
+// Add any page that should use the shorter header (e.g., AccessRequests)
+const COMPACT_PATHS = [
+  "/login",
+  "/signup/applicant",
+  "/forgot-password",
+  "/reset-password",
+  "/AccessRequests",
+  "/ApplicantPage",
+  "/applicant/certificates",
+  "/applicant/requests",
+  "/employer/access/new",
+  "/institution/dashboard",
+  "/institution/upload",
+ 
+];
+
 export default function PublicLayout({ children }: PropsWithChildren) {
   const { pathname } = useLocation();
-
-  // Mark auth routes (login, signup) as dense
-  const isAuth = pathname.startsWith("/login") || pathname.startsWith("/signup");
+  const isCompact = COMPACT_PATHS.some((p) => pathname.startsWith(p));
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-gray-900">
-      <Navbar dense={isAuth} />
-      <main id="content" className="flex-1">{children}</main>
-      <Footer />
+      <Navbar dense={isCompact} />
+      <main id="content" className={isCompact ? "flex-1 py-8" : "flex-1 py-12"}>
+        <div className="mx-auto w-full max-w-6xl px-4">{children}</div>
+      </main>
+      <Footer compact={isCompact} />
     </div>
   );
 }

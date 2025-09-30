@@ -11,6 +11,7 @@ What this file covers
 2) Login:
    - Works with email and with exact (normalized) national ID.
    - Returns JWT access/refresh tokens.
+   - BLOCKS org users (Employer/Institution) if status != APPROVED.
 
 3) /me:
    - Returns role-aware profile.
@@ -22,7 +23,12 @@ What this file covers
 
 5) Admin moderation:
    - Admin can list pending org accounts.
-   - Admin can approve an employer.
+   - Admin can approve/reject employers and institutions.
+
+6) Business rules:
+   - Org users cannot log in until APPROVED.
+   - Media proof is saved to MEDIA_ROOT on signup.
+   - /me behavior per role.
 
 Notes
 -----
@@ -37,18 +43,23 @@ import shutil
 import tempfile
 
 from django.urls import reverse
-from django.test import override_settings
+from django.test import override_settings, TestCase
 from django.contrib.auth import get_user_model
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from api.accounts.models import Applicant, Employer
+from api.accounts.models import Applicant, Employer, Institution
 
 User = get_user_model()
 
 # Use a temporary media directory for uploads during tests
 TEMP_MEDIA_ROOT = tempfile.mkdtemp()
+
+
+def make_pdf_bytes() -> bytes:
+    """A tiny valid-enough PDF binary for tests."""
+    return b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 
 
 @override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
@@ -233,6 +244,34 @@ class AccountsEmployerTests(APITestCase):
         self.assertEqual(resp_big.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("proof_doc", resp_big.data)
 
+    def test_employer_signup_saves_pdf_to_media(self):
+        """
+        Employer signup should save the PDF proof document to MEDIA_ROOT.
+        """
+        pdf = io.BytesIO(make_pdf_bytes())
+        pdf.name = "auth_letter.pdf"
+        
+        resp = self.client.post(
+            reverse("signup-employer"),
+            data={
+                "full_name": "Khalid HR",
+                "work_email": "hr@newcorp.com",
+                "company_name": "Example Corp",
+                "cr_number": "1010123456",
+                "phone": "+966511111111",
+                "password": "DevOnly123!",
+                "confirm_password": "DevOnly123!",
+                "proof_doc": pdf,
+            },
+            format="multipart",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+
+        emp = Employer.objects.get(user__email="hr@newcorp.com")
+        self.assertTrue(emp.proof_doc.name)  # DB path set
+        self.assertTrue(os.path.exists(emp.proof_doc.path))  # File written to MEDIA_ROOT
+        self.assertTrue(emp.proof_doc.url.endswith(".pdf"))
+
 
 class AccountsAdminTests(APITestCase):
     """
@@ -290,3 +329,219 @@ class AccountsAdminTests(APITestCase):
         # Refresh from DB and check status
         self.emp.refresh_from_db()
         self.assertEqual(self.emp.status, Employer.Status.APPROVED)
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix="tayaqan_test_media_"))
+class AccountsRulesTests(TestCase):
+    """
+    Tests focused on the business rules we discussed:
+    - Org users cannot log in until APPROVED
+    - Admin can list and approve
+    - Media proof is saved to MEDIA_ROOT on signup
+    - /api/me behavior per role
+    """
+    @classmethod
+    def setUpTestData(cls):
+        # Admin
+        cls.admin = User.objects.create_user(
+            email="admin@example.com", password="Admin#123", role=User.Roles.ADMIN, is_staff=True
+        )
+
+        # Applicant
+        cls.app_user = User.objects.create_user(
+            email="applicant@example.com", password="Pass#1234", role=User.Roles.APPLICANT
+        )
+        Applicant.objects.create(
+            user=cls.app_user,
+            full_name="Aisha Applicant",
+            national_id_plain="1234567890",
+            phone="+966500000000",
+        )
+
+        # Employer (PENDING)
+        cls.emp_user = User.objects.create_user(
+            email="emp@corp.com", password="Pass#1234", role=User.Roles.EMPLOYER
+        )
+        Employer.objects.create(
+            user=cls.emp_user,
+            full_name="Sara HR",
+            company_name="Al Najm",
+            cr_number_plain="1010456789",
+            status=Employer.Status.PENDING,
+        )
+
+        # Institution (PENDING)
+        cls.inst_user = User.objects.create_user(
+            email="registrar@uni.edu", password="Pass#1234", role=User.Roles.INSTITUTION
+        )
+        Institution.objects.create(
+            user=cls.inst_user,
+            institution_name="King Saud University",
+            department="Registrar",
+            status=Institution.Status.PENDING,
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        # Clean up uploaded files created by tests
+        # The temp directory is already cleaned up by the decorator
+        pass
+
+    def setUp(self):
+        self.client = APIClient()
+
+    # ---------- Auth/login rule tests ----------
+
+    def test_applicant_can_login(self):
+        """Applicants should be able to log in immediately after signup."""
+        res = self.client.post(
+            "/api/auth/login",
+            {"identifier": "applicant@example.com", "password": "Pass#1234"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("access", res.data)
+        self.assertIn("refresh", res.data)
+
+    def test_employer_cannot_login_when_pending(self):
+        """Employers with PENDING status should be blocked from login."""
+        res = self.client.post(
+            "/api/auth/login",
+            {"identifier": "emp@corp.com", "password": "Pass#1234"},
+            format="json",
+        )
+        # After our change, pending orgs should be blocked with 401
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("not approved", str(res.data).lower())
+
+    def test_employer_can_login_after_approval(self):
+        """Employers should be able to log in after admin approval."""
+        emp = self.emp_user.employer
+        emp.status = Employer.Status.APPROVED
+        emp.save()
+
+        res = self.client.post(
+            "/api/auth/login",
+            {"identifier": "emp@corp.com", "password": "Pass#1234"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn("access", res.data)
+
+    def test_institution_cannot_login_when_pending(self):
+        """Institutions with PENDING status should be blocked from login."""
+        res = self.client.post(
+            "/api/auth/login",
+            {"identifier": "registrar@uni.edu", "password": "Pass#1234"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 401)
+        self.assertIn("not approved", str(res.data).lower())
+
+    def test_institution_can_login_after_approval(self):
+        """Institutions should be able to log in after admin approval."""
+        inst = self.inst_user.institution
+        inst.status = Institution.Status.APPROVED
+        inst.save()
+
+        res = self.client.post(
+            "/api/auth/login",
+            {"identifier": "registrar@uni.edu", "password": "Pass#1234"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn("access", res.data)
+
+    # ---------- /api/me behavior ----------
+
+    def test_me_returns_full_national_id_for_applicant(self):
+        """The /me endpoint should return full national_id for applicants."""
+        self.client.force_authenticate(self.app_user)
+        res = self.client.get("/api/me")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["profile"]["national_id"], "1234567890")
+
+    def test_me_requires_auth(self):
+        """/api/me should require authentication."""
+        res = self.client.get("/api/me")
+        self.assertEqual(res.status_code, 401)
+
+    # ---------- Admin endpoints ----------
+
+    def test_admin_can_list_pending_employers(self):
+        """Admin should be able to list pending employers."""
+        self.client.force_authenticate(self.admin)
+        res = self.client.get("/api/admin/accounts/pending", {"role": "employer"})
+        self.assertEqual(res.status_code, 200)
+        emails = [row["email"] for row in res.data.get("results", [])]
+        self.assertIn("emp@corp.com", emails)
+
+    def test_non_admin_cannot_access_admin_endpoints(self):
+        """Non-admin users should not be able to access admin endpoints."""
+        self.client.force_authenticate(self.app_user)
+        res = self.client.get("/api/admin/accounts/pending", {"role": "employer"})
+        self.assertEqual(res.status_code, 403)
+
+    def test_admin_can_approve_employer(self):
+        """Admin should be able to approve employer accounts."""
+        self.client.force_authenticate(self.admin)
+        res = self.client.patch(
+            f"/api/admin/accounts/{self.emp_user.id}/status",
+            {"status": "APPROVED"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.emp_user.refresh_from_db()
+        self.assertEqual(self.emp_user.employer.status, Employer.Status.APPROVED)
+
+    def test_admin_can_reject_employer(self):
+        """Admin should be able to reject employer accounts."""
+        self.client.force_authenticate(self.admin)
+        res = self.client.patch(
+            f"/api/admin/accounts/{self.emp_user.id}/status",
+            {"status": "REJECTED", "notes": "Invalid CR number"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.emp_user.refresh_from_db()
+        self.assertEqual(self.emp_user.employer.status, Employer.Status.REJECTED)
+
+    def test_admin_can_approve_institution(self):
+        """Admin should be able to approve institution accounts."""
+        self.client.force_authenticate(self.admin)
+        res = self.client.patch(
+            f"/api/admin/accounts/{self.inst_user.id}/status",
+            {"status": "APPROVED"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.inst_user.refresh_from_db()
+        self.assertEqual(self.inst_user.institution.status, Institution.Status.APPROVED)
+
+    # ---------- File upload on signup ----------
+
+    def test_employer_signup_saves_pdf(self):
+        """Employer signup should save PDF proof to MEDIA_ROOT."""
+        pdf = io.BytesIO(make_pdf_bytes())
+        pdf.name = "auth_letter.pdf"
+        res = self.client.post(
+            "/api/auth/signup/employer",
+            data={
+                "full_name": "Khalid HR",
+                "work_email": "hr@corp.com",
+                "company_name": "Example Corp",
+                "cr_number": "1010123456",
+                "phone": "+966511111111",
+                "password": "Pass#1234",
+                "confirm_password": "Pass#1234",
+                "proof_doc": pdf,
+            },
+            format="multipart",
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+
+        emp = Employer.objects.get(user__email="hr@corp.com")
+        self.assertTrue(emp.proof_doc.name)          # DB path set
+        self.assertTrue(os.path.exists(emp.proof_doc.path))  # File written to MEDIA_ROOT
+        self.assertTrue(emp.proof_doc.url.endswith(".pdf"))

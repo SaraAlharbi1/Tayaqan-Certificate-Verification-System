@@ -1,54 +1,67 @@
-"""
-Django admin registrations for quick internal moderation.
-
-Why admin?
-----------
-Gives you an immediate back office to:
-- inspect users and profiles,
-- approve/reject employers/institutions,
-- debug data without building custom screens yet.
-"""
+from django import forms
+from django.db import models
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.utils.html import format_html
 from .models import User, Applicant, Employer, Institution
 
-
+# ---- Users ----
 @admin.register(User)
-class UserAdmin(BaseUserAdmin):
-    """Admin list for Users: email, role, and flags."""
+class UserAdmin(DjangoUserAdmin):
     model = User
-    list_display = ("id", "email", "role", "is_active", "is_staff")
-    list_filter = ("role", "is_active", "is_staff")
     ordering = ("id",)
+    list_display = ("email", "role", "is_active", "is_staff", "last_login")
+    list_filter  = ("role", "is_active", "is_staff")
     search_fields = ("email",)
+    exclude = ("username", "first_name", "last_name")
     fieldsets = (
-        (None, {"fields": ("email", "password", "role")}),
+        (None, {"fields": ("email", "password")}),
+        ("Role", {"fields": ("role",)}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
-    add_fieldsets = (
-        (None, {"classes": ("wide",), "fields": ("email", "role", "password1", "password2", "is_staff", "is_superuser")}),
-    )
+    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email","password1","password2","role","is_active","is_staff","is_superuser")}),)
 
+# helper
+def _proof_link(filefield):
+    if filefield and getattr(filefield, "url", None):
+        return format_html('<a href="{}" target="_blank">Download PDF</a>', filefield.url)
+    return "—"
 
+# ---- Applicants (signup fields) ----
 @admin.register(Applicant)
 class ApplicantAdmin(admin.ModelAdmin):
-    """Quick view of Applicants; search by email, name, or national_id_plain/hash."""
-    list_display = ("id", "user", "full_name", "national_id_plain")
-    search_fields = ("user__email", "full_name", "national_id_plain", "national_id_hash")
+    list_display = ("id", "user", "full_name", "national_id_plain", "phone")
+    search_fields = ("user__email", "full_name", "national_id_plain")
 
-
+# ---- Employers (signup fields) ----
 @admin.register(Employer)
 class EmployerAdmin(admin.ModelAdmin):
-    """Moderate Employers; filter by status."""
-    list_display = ("id", "user", "company_name", "cr_number_plain", "status")
+    list_display = ("id", "user", "full_name", "company_name", "cr_number_plain",
+                    "work_email", "phone", "status", "status_notes", "proof_link")
+    list_display_links = ("id", "user")
+    list_editable = ("status", "status_notes")
     list_filter = ("status",)
-    search_fields = ("user__email", "company_name", "cr_number_plain", "verifier_id_hash")
+    search_fields = ("user__email", "full_name", "company_name", "cr_number_plain")
 
+    formfield_overrides = {models.TextField: {"widget": forms.Textarea(attrs={"rows": 2})}}
+    readonly_fields = ("proof_link",)
 
+    @admin.display(description="Proof")
+    def proof_link(self, obj): return _proof_link(obj.proof_doc)
+
+# ---- Institutions (signup fields) ----
 @admin.register(Institution)
 class InstitutionAdmin(admin.ModelAdmin):
-    """Moderate Institutions; filter by status."""
-    list_display = ("id", "user", "institution_name", "status")
+    list_display = ("id", "user", "institution_name", "official_email", "department",
+                    "phone", "status", "status_notes", "proof_link")
+    list_display_links = ("id", "user")
+    list_editable = ("status", "status_notes")
     list_filter = ("status",)
-    search_fields = ("user__email", "institution_name")
+    search_fields = ("user__email", "institution_name", "official_email")
+
+    formfield_overrides = {models.TextField: {"widget": forms.Textarea(attrs={"rows": 2})}}
+    readonly_fields = ("proof_link",)
+
+    @admin.display(description="Proof")
+    def proof_link(self, obj): return _proof_link(obj.proof_doc)

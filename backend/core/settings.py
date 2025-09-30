@@ -179,3 +179,11 @@ CORS_ALLOWED_ORIGINS = [
 
 
 CORS_ALLOW_CREDENTIALS = False
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"     # or the SMTP host your provider gave
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "saalharbi0003@stu.kau.edu.sa"   # your email
+EMAIL_HOST_PASSWORD = "zezn iqla axan hopp"        # the password they gave you
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER

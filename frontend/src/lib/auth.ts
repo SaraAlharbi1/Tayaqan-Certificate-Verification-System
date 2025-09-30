@@ -1,32 +1,31 @@
 /**
- * High-level auth helpers.
- * - login(): POST /auth/login, stores access token (refresh cookie set by server)
- * - logout(): POST /auth/logout, clears local access token + server cookie
- * - getAuthToken(): convenience getter for guards
+ * High-level auth helpers (header JWT).
  */
-
 import { api } from "./api";
-import { setAccessToken, clearAccessToken, getAccessToken } from "./storage";
-import type { AuthResponse, User } from "./types";
+import { setAccessToken, setRefreshToken, clearTokens, getAccessToken } from "./storage";
+import type { Tokens, MeResponse } from "./types";
 
-export async function login(email: string, password: string): Promise<User> {
-  const res = await api<AuthResponse>("/auth/login", {
+/** Login with email OR national ID (use "identifier") */
+export async function login(identifier: string, password: string): Promise<Tokens> {
+  const tokens = await api<Tokens>("/auth/login/", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   });
-  // Backend sets httpOnly refresh cookie; we only persist the access token here.
-  setAccessToken(res.accessToken);
-  return res.user;
+  setAccessToken(tokens.access);
+  setRefreshToken(tokens.refresh);
+  return tokens;
 }
 
-export async function logout(): Promise<void> {
-  clearAccessToken();
-  // Ask backend to clear the refresh cookie; ignore network errors on purpose
-  try {
-    await api<void>("/auth/logout", { method: "POST" });
-  } catch {}
+export function logout(): void {
+  clearTokens(); // no server logout endpoint (stateless JWT)
 }
 
+/** Convenience getter for guards */
 export function getAuthToken(): string | null {
   return getAccessToken();
+}
+
+/** Fetch current user profile */
+export async function me(): Promise<MeResponse> {
+  return api<MeResponse>("/me");
 }
