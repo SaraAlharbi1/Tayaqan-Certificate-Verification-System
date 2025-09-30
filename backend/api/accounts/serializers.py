@@ -1,55 +1,34 @@
 """
 Serializers: request/response contracts + validation.
-
-Contains
---------
-- LoginSerializer:
-    Accepts email OR exact national ID (10 digits) + password; returns JWTs.
-- MeSerializer:
-    Response shape for /api/me (role-aware; shows full IDs per your policy).
-- ApplicantSignupSerializer:
-    Normalizes & validates ID, stores national_id_plain, computes national_id_hash.
-- EmployerSignupSerializer:
-    Normalizes & validates CR, stores cr_number_plain, computes verifier_id_hash.
-- InstitutionSignupSerializer:
-    Validates institution profile with proof PDF.
-- AdminStatusUpdateSerializer:
-    Admin approves/rejects org accounts.
 """
 from django.db import transaction
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.utils.encoding import force_bytes, smart_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from rest_framework import serializers
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, AuthenticationFailed
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User, Applicant, Employer, Institution
 from .utils import normalize_national_id, normalize_cr_number, keccak256_hex
-from .validators import (
-    is_email, is_national_id_10_digits, validate_phone, strong_password
-)
+from .validators import is_email, is_national_id_10_digits, validate_phone, strong_password
 
 PDF_MIME = "application/pdf"
 MAX_PROOF_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 class LoginSerializer(serializers.Serializer):
-    """
-    Login with:
-    - identifier: email OR 10-digit national ID (applicant only)
-    - password:   Django password
-
-    Flow:
-    1) If it looks like an email → lookup User by email.
-    2) Otherwise normalize as national ID and lookup Applicant by national_id_plain.
-    3) Verify password and issue JWT tokens.
-    """
     identifier = serializers.CharField()
-    password = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+    access = serializers.CharField(read_only=True)
+    refresh = serializers.CharField(read_only=True)
+    user = serializers.DictField(read_only=True)
 
     def validate(self, attrs):
         ident = attrs.get("identifier", "").strip()
         password = attrs.get("password", "")
-
         user = None
+
         if is_email(ident):
             try:
                 user = User.objects.get(email__iexact=ident)
@@ -65,14 +44,49 @@ class LoginSerializer(serializers.Serializer):
                     pass
 
         if not user or not user.check_password(password):
-            raise ValidationError({"message": "Invalid credentials"}, code="auth_failed")
+            raise AuthenticationFailed("Invalid credentials")
+
+        if user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
+            if user.employer.status != Employer.Status.APPROVED:
+                raise AuthenticationFailed("Your employer account is not approved yet.")
+        if user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
+            if user.institution.status != Institution.Status.APPROVED:
+                raise AuthenticationFailed("Your institution account is not approved yet.")
 
         refresh = RefreshToken.for_user(user)
-        return {"access": str(refresh.access_token), "refresh": str(refresh)}
+
+        profile = {}
+        if user.role == User.Roles.APPLICANT and hasattr(user, "applicant"):
+            a = user.applicant
+            profile = {"full_name": a.full_name, "national_id": a.national_id_plain, "phone": a.phone}
+        elif user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
+            e = user.employer
+            profile = {
+                "full_name": e.full_name,
+                "company_name": e.company_name,
+                "cr_number": e.cr_number_plain,
+                "phone": e.phone,
+                "status": e.status,
+            }
+        elif user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
+            i = user.institution
+            profile = {
+                "institution_name": i.institution_name,
+                "department": i.department,
+                "phone": i.phone,
+                "status": i.status,
+            }
+        elif user.role == User.Roles.ADMIN:
+            profile = {"email": user.email}
+
+        return {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": {"id": user.id, "email": user.email, "role": user.role, "profile": profile},
+        }
 
 
 class MeSerializer(serializers.Serializer):
-    """Shape of /api/me response (role-aware)."""
     id = serializers.IntegerField()
     email = serializers.EmailField()
     role = serializers.CharField()
@@ -81,13 +95,6 @@ class MeSerializer(serializers.Serializer):
 
 
 class ApplicantSignupSerializer(serializers.Serializer):
-    """
-    Applicant registration:
-
-    - Normalize the provided ID to canonical ASCII digits.
-    - Enforce exactly 10 digits.
-    - Save national_id_plain (for UI) and national_id_hash = keccak256(plain).
-    """
     full_name = serializers.CharField(max_length=150)
     email = serializers.EmailField()
     national_id = serializers.CharField()
@@ -119,11 +126,6 @@ class ApplicantSignupSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated):
-        """
-        Create:
-        - User(role=APPLICANT)
-        - Applicant profile with plain ID + hash
-        """
         user = User.objects.create_user(
             email=validated["email"],
             password=validated["password"],
@@ -140,12 +142,6 @@ class ApplicantSignupSerializer(serializers.Serializer):
 
 
 class EmployerSignupSerializer(serializers.Serializer):
-    """
-    Employer registration (multipart):
-    - Normalize CR number, store cr_number_plain, compute verifier_id_hash.
-    - Save PDF proof (≤ 5MB).
-    - Status starts as PENDING (per your rule).
-    """
     full_name = serializers.CharField(max_length=150)
     work_email = serializers.EmailField()
     company_name = serializers.CharField(max_length=200)
@@ -200,9 +196,6 @@ class EmployerSignupSerializer(serializers.Serializer):
 
 
 class InstitutionSignupSerializer(serializers.Serializer):
-    """
-    Institution registration (multipart).
-    """
     institution_name = serializers.CharField(max_length=200)
     official_email = serializers.EmailField()
     department = serializers.CharField(max_length=150, allow_blank=True, required=False)
@@ -244,10 +237,54 @@ class InstitutionSignupSerializer(serializers.Serializer):
 
 
 class AdminStatusUpdateSerializer(serializers.Serializer):
-    """
-    Admin-only moderation payload:
-    - status: APPROVED / REJECTED
-    - notes: optional free text
-    """
     status = serializers.ChoiceField(choices=["APPROVED", "REJECTED"])
     notes = serializers.CharField(allow_blank=True, required=False)
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        self.user = User.objects.filter(email__iexact=value).first()
+        return value
+
+    def save(self, **kwargs):
+        user = getattr(self, "user", None)
+        if not user:
+            return None
+        token = PasswordResetTokenGenerator().make_token(user)
+        uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+        base = kwargs.get("frontend_base")
+        reset_url = f"{base}?uid={uidb64}&token={token}"
+        user.email_user(
+            subject="Reset your Tayaqan password",
+            message=f"Click the link to reset your password:\n{reset_url}\n\nIf you didn't request this, ignore it.",
+            from_email=None,
+        )
+        return {"uid": uidb64, "token": token}
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(min_length=8, write_only=True)
+
+    def validate(self, attrs):
+        uidb64 = attrs["uid"]
+        token = attrs["token"]
+        try:
+            uid = smart_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except Exception:
+            raise serializers.ValidationError({"uid": "Invalid UID"})
+        if not PasswordResetTokenGenerator().check_token(user, token):
+            raise serializers.ValidationError({"token": "Invalid or expired token"})
+        attrs["user"] = user
+        return attrs
+
+    def save(self, **kwargs):
+        user = self.validated_data["user"]
+        new_password = self.validated_data["new_password"]
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+        return user

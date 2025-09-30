@@ -1,25 +1,25 @@
 /**
- * Minimal client-side storage for the *access* token only.
- * The refresh token is stored by the server in an httpOnly cookie
- * (unreadable by JS) and sent automatically with `credentials: 'include'`.
+ * Local storage for access/refresh tokens (no cookies).
  */
+let memoryAccessToken: string | null = null;
+let memoryRefreshToken: string | null = null;
 
-let memoryAccessToken: string | null = null; // fast + safest place
-const KEY = "tayaqan:access";
+const KEY_ACCESS = "tayaqan:access";
+const KEY_REFRESH = "tayaqan:refresh";
 
-/** Read the current access token (memory first, then localStorage). */
 export function getAccessToken(): string | null {
-  return memoryAccessToken ?? localStorage.getItem(KEY);
+  return memoryAccessToken ?? localStorage.getItem(KEY_ACCESS);
 }
-
-/** Save the current access token (both memory + localStorage for reloads). */
 export function setAccessToken(token: string) {
-  memoryAccessToken = token;
-  localStorage.setItem(KEY, token);
+  memoryAccessToken = token; localStorage.setItem(KEY_ACCESS, token);
 }
-
-/** Remove the access token everywhere. */
-export function clearAccessToken() {
-  memoryAccessToken = null;
-  localStorage.removeItem(KEY);
+export function getRefreshToken(): string | null {
+  return memoryRefreshToken ?? localStorage.getItem(KEY_REFRESH);
+}
+export function setRefreshToken(token: string) {
+  memoryRefreshToken = token; localStorage.setItem(KEY_REFRESH, token);
+}
+export function clearTokens() {
+  memoryAccessToken = null; memoryRefreshToken = null;
+  localStorage.removeItem(KEY_ACCESS); localStorage.removeItem(KEY_REFRESH);
 }

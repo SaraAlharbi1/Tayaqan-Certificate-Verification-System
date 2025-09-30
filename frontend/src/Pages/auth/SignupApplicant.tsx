@@ -11,6 +11,9 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 
+// Backend base URL (set VITE_API_BASE in .env.local to override)
+const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000/api";
+
 // ---------- Validation ----------
 const phoneRegex = /^(\+?\d{8,15})$/;           // + optional, 8–15 digits
 const nationalIdRegex = /^\d{10}$/;             // e.g., 10 digits (adjust to your rule)
@@ -49,28 +52,31 @@ export default function SignupApplicant() {
     reValidateMode: "onChange",
   });
 
-  // Change this to your real API and success route
-  const APPLICANT_HOME = "/applicant"; // or "/applicant/dashboard"
+  // Change this to your real post-signup route if needed
+  const APPLICANT_HOME = "/applicant"; // or "/login" if you want login after signup
+
   const onSubmit = async (values) => {
     setSubmitError("");
     try {
-      const res = await fetch("/auth/applicants/signup/", {
+      const res = await fetch(`${API}/auth/signup/applicant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        // no cookies for signup (we use header JWT later after login)
         body: JSON.stringify({
           full_name: values.fullName,
           email: values.email,
           national_id: values.nationalId,
           phone: values.phone,
           password: values.password,
+          confirm_password: values.confirmPassword, // <-- required by backend
         }),
       });
+
       if (!res.ok) {
         const txt = await res.text().catch(() => "Signup failed");
         throw new Error(txt || "Signup failed");
       }
-      // ✅ go to applicant home
+
       navigate(APPLICANT_HOME);
     } catch (e) {
       console.error(e);
@@ -188,28 +194,25 @@ export default function SignupApplicant() {
                   <p className="form-error" id="confirmPassword-error">{errors.confirmPassword.message}</p>
                 )}
               </div>
-
-              
             </div>
+
             {/* Actions row */}
-<div className="mt-6 col-span-2 md:col-span-2 flex flex-col items-end">
-  <button
-    type="submit"
-    className="btn btn-primary min-w-32"
-    disabled={isSubmitting}
-  >
-    {isSubmitting ? "Signing up…" : "Sign up"}
-  </button>
+            <div className="mt-6 col-span-2 md:col-span-2 flex flex-col items-end">
+              <button
+                type="submit"
+                className="btn btn-primary min-w-32"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Signing up…" : "Sign up"}
+              </button>
 
-  <span className="text-sm text-muted mt-2">
-    Already have an account?{" "}
-    <Link to="/login" className="font-medium text-brand-600">Sign in</Link>
-  </span>
-</div>
+              <span className="text-sm text-muted mt-2">
+                Already have an account?{" "}
+                <Link to="/login" className="font-medium text-brand-600">Sign in</Link>
+              </span>
+            </div>
 
-
-
-              {submitError && <p className="form-error">{submitError}</p>}
+            {submitError && <p className="form-error">{submitError}</p>}
           </div>
         </form>
       </div>

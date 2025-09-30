@@ -1,15 +1,11 @@
-/**
- * Shared TypeScript types used across the auth + API layer.
- */
-export type User = {
-  id: string;
-  name: string;
-  email: string;
-};
+export type Role = "APPLICANT" | "EMPLOYER" | "INSTITUTION" | "ADMIN";
+export type OrgStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type Tokens = { access: string; refresh: string };
 
-export type AuthResponse = {
-  /** Short-lived JWT used in the Authorization header */
-  accessToken: string;
-  /** The authenticated user profile */
-  user: User;
+export type MeResponse = {
+  id: number;
+  email: string;
+  role: Role;
+  status?: OrgStatus;           // for employer/institution
+  profile: Record<string, any>; // role-specific fields
 };
