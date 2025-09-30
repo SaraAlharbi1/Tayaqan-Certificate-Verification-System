@@ -1,59 +1,198 @@
-// Navbar.tsx
-import { NavLink, useLocation } from "react-router-dom";
-import { useMemo } from "react";
-import NavbarWave from "@/assets/navbar-wave.png";
-import { LINKS, PUBLIC_PATHS, FORCE_PUBLIC_ON } from "./nav.config";
+// src/App.tsx
+import { Routes, Route, Navigate } from "react-router-dom";
+import PublicLayout from "./App/layout/PublicLayout";
+import ProtectedRoute from "./lib/ProtectedRoute";
 
-type Role = "public" | "institution" | "employer" | "applicant";
-const normalizeRole = (r?: string): Role =>
-  (r || "").toLowerCase().includes("institution") ? "institution" :
-  (r || "").toLowerCase().match(/employer|hr/) ? "employer" :
-  (r || "").toLowerCase().match(/applicant|student/) ? "applicant" : "public";
+// Public pages
+import HomePage from "./pages/HomePage";
+import AboutPage from "./pages/AboutUsPage";
+import HowItWorksPage from "./pages/HowItWorksPage";
 
-type Props = { dense?: boolean; role?: Role | string };
+// Auth
+import LoginPage from "./pages/auth/LoginPage";
+import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
+import SignupInstitution from "./pages/auth/SignupInstitution";
+import SuccessPending from "./pages/auth/SuccessPending";
+// 🔹 Password reset
+import RequestResetPage from "./pages/auth/RequestResetPage";
+import ResetPasswordPage from "./pages/auth/ResetPassword";
 
-const size = {
-  dense:  { header: "mb-4 md:mb-6", pad: "pt-10 md:pt-14 pb-16 md:pb-20" },
-  normal: { header: "mb-10 md:mb-14", pad: "pt-14 md:pt-20 pb-28 md:pb-36" },
-} as const;
+// Employer role
+import AccessRequests from "./Pages/EmployerRole/AccessRequests";
+import CreateAccessRequest from "./Pages/EmployerRole/CreateAccessRequest";
+import ApplicantSharedCertificates from "./Pages/EmployerRole/ApplicantSharedCertificates";
+import CertificateDetailsPage from "./Pages/EmployerRole/CertificateDetails";
 
-export default function Navbar({ dense = false, role: roleProp }: Props) {
-  const { pathname } = useLocation();
+// Applicant role
+import ApplicantPage from "./Pages/ApplicantRole/ApplicantPage";
+import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
+import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
+import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
 
-  // single, reusable helper
-  const startsWithAny = (paths: string[]) =>
-    paths.some((p) => (p === "/" ? pathname === "/" : pathname.startsWith(p)));
+// Employer/Applicant signup pages
+import SignupApplicant from "./Pages/auth/SignupApplicant";
+import SignupEmployer from "./Pages/auth/SignupEmployer";
 
-  // decide menu: force public on auth pages; otherwise by role/localStorage
-  const role = useMemo<Role>(() => {
-    if (startsWithAny(FORCE_PUBLIC_ON) || startsWithAny(PUBLIC_PATHS)) return "public";
-    if (roleProp) return normalizeRole(String(roleProp));
-    try {
-      const u = JSON.parse(localStorage.getItem("user") || "{}");
-      return normalizeRole(u?.role);
-    } catch {
-      return "public";
-    }
-  }, [pathname, roleProp]);
+// Institution role
+import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
+import UploadSuccess from "./Pages/InstitutionRole/UploadSuccess";
+import InstitutionDashboard from "./Pages/InstitutionRole/InstitutionDashboard";
 
-  const variant = dense ? size.dense : size.normal;
+// ---- Role-based guard ----
+function RoleRoute({
+  children,
+  allow,
+}: {
+  children: JSX.Element;
+  allow: Array<"institution" | "employer" | "applicant">;
+}) {
+  const user = JSON.parse(localStorage.getItem("user") || "null");
+  const role = (user?.role || "").toLowerCase();
+  const allowSet = new Set(allow.map((r) => r.toLowerCase()));
+  if (!role || !allowSet.has(role)) return <Navigate to="/" replace />;
+  return children;
+}
 
+export default function App() {
   return (
-    <header className={`relative text-white ${variant.header}`}>
-      <img src={NavbarWave} alt="" className="absolute inset-0 w-full h-auto pointer-events-none select-none" />
-      <div className="relative z-10">
-        <nav className={`mx-auto max-w-6xl px-6 ${variant.pad} flex items-center justify-between gap-6`}>
-          <div className="w-28" />
-          <div className="flex-1 flex justify-center gap-8 md:gap-12 text-lg md:text-xl font-semibold">
-            {LINKS[role].map(({ to, label, end }) => (
-              <NavLink key={to} to={to} end={end} className="text-white/95 hover:text-white transition-colors">
-                {label}
-              </NavLink>
-            ))}
-          </div>
-          <div className="w-28" />
-        </nav>
-      </div>
-    </header>
+    <PublicLayout>
+      <Routes>
+        {/* Public */}
+        <Route path="/" element={<HomePage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/how-it-works" element={<HowItWorksPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        {/* 🔹 Password reset (public) */}
+        <Route path="/forgot-password" element={<RequestResetPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+        {/* Signup (public) */}
+        <Route path="/signup" element={<SignupSelectionPage />} />
+        <Route path="/signup/applicant" element={<SignupApplicant />} />
+        <Route path="/signup/employer" element={<SignupEmployer />} />
+        <Route path="/signup/institution" element={<SignupInstitution />} />
+        <Route path="/signup/success/:role" element={<SuccessPending />} />
+
+        {/* Applicant (protected + role) */}
+        <Route
+          path="/ApplicantPage"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["applicant"]}>
+                <ApplicantPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/certificates"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["applicant"]}>
+                <MyCertificatesPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/requests"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["applicant"]}>
+                <AccessReqused />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/requests/:requestId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["applicant"]}>
+                <AccessCertificates />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Employer (protected + role) */}
+        <Route
+          path="/AccessRequests"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["employer"]}>
+                <AccessRequests />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/employer/access/new"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["employer"]}>
+                <CreateAccessRequest />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/employer/applicents/:applicantId/shared"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["employer"]}>
+                <ApplicantSharedCertificates />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/employer/certificates/:certificateId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["employer"]}>
+                <CertificateDetailsPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Institution (protected + role) */}
+        <Route
+          path="/institution/upload"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["institution"]}>
+                <UploadCertificate />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/institution/upload/success/:applicantId"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["institution"]}>
+                <UploadSuccess />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/institution/dashboard"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["institution"]}>
+                <InstitutionDashboard />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </PublicLayout>
   );
 }
+
