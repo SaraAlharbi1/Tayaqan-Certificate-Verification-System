@@ -76,15 +76,15 @@ export default function LoginPage() {
 
       // 4) Route by role
       if (role === "institution") {
-        nav("/institution/dashboard", { replace: true });
+        nav("/InstitutionDashboard", { replace: true });
         return;
       }
       if (role === "employer") {
-        nav("/AccessRequests", { replace: true });
+        nav("/EmployerDashboard", { replace: true });
         return;
       }
       if (role === "applicant") {
-        nav("/ApplicantPage", { replace: true });
+        nav("/ApplicantDashboard", { replace: true });
         return;
       }
 

@@ -107,7 +107,7 @@ export default function SignupApplicant() {
                   id="fullName"
                   type="text"
                   className="form-input"
-                  placeholder="e.g., Dominic Matthew"
+                  placeholder="e.g., Sara sultan"
                   aria-invalid={!!errors.fullName}
                   aria-describedby="fullName-error"
                   {...register("fullName")}
@@ -122,7 +122,7 @@ export default function SignupApplicant() {
                   id="email"
                   type="email"
                   className="form-input"
-                  placeholder="domat@example.com"
+                  placeholder="sara@example.com"
                   aria-invalid={!!errors.email}
                   aria-describedby="email-error"
                   {...register("email")}

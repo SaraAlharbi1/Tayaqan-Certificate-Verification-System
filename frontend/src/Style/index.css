@@ -26,7 +26,8 @@
 
 /* Base: light global defaults */
 @layer base {
-  html { @apply font-sans text-gray-900 bg-white; }
+  html { @apply font-sans text-gray-900 bg-white;
+        scrollbar-gutter: stable both-edges;}
   body { @apply antialiased; }
   a { @apply text-brand-600 hover:text-brand-700; }
   h1,h2,h3,h4,h5,h6 { @apply font-bold text-gray-900; }

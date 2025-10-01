@@ -1,4 +1,4 @@
-// src/Pages/ApplicantRole/ApplicantPage.tsx
+
 import { Link } from "react-router-dom";
 import CertificateLogo from "@/assets/Educational-logo.png";
 
