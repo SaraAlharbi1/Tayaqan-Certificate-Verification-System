@@ -17,7 +17,7 @@ export default function HomePage() {
   return (
     <>
       {/* -------------------- HERO SECTION -------------------- */}
-      <section className="bg-gradient-to-b from-white to-surface -mt-6 md:-mt-10">
+      <section className="bg-gradient-to-b from-white to-surface ">
         <div className="mx-auto max-w-6xl px-6 pt-6 md:pt-8 pb-12 md:pb-16 grid md:grid-cols-2 gap-8 md:gap-10 items-start">
           
           {/* LEFT SIDE: Main heading, description, and CTAs */}

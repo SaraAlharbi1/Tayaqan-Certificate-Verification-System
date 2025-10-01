@@ -13,25 +13,25 @@ import LoginPage from "./pages/auth/LoginPage";
 import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
 import SignupInstitution from "./pages/auth/SignupInstitution";
 import SuccessPending from "./pages/auth/SuccessPending";
-// 🔹 Password reset
+import SignupApplicant from "./Pages/auth/SignupApplicant";
+import SignupEmployer from "./Pages/auth/SignupEmployer";
+
+//  Password reset
 import RequestResetPage from "./pages/auth/RequestResetPage";
 import ResetPasswordPage from "./pages/auth/ResetPassword";
 
 // Employer role
-import AccessRequests from "./Pages/EmployerRole/AccessRequests";
+import AccessRequests from "./Pages/EmployerRole/EmployerDashboard";
 import CreateAccessRequest from "./Pages/EmployerRole/CreateAccessRequest";
 import ApplicantSharedCertificates from "./Pages/EmployerRole/ApplicantSharedCertificates";
 import CertificateDetailsPage from "./Pages/EmployerRole/CertificateDetails";
 
 // Applicant role
-import ApplicantPage from "./Pages/ApplicantRole/ApplicantPage";
+import ApplicantPage from "./Pages/ApplicantRole/ApplicantDashboard";
 import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
 import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
 
-// Employer/Applicant signup pages
-import SignupApplicant from "./Pages/auth/SignupApplicant";
-import SignupEmployer from "./Pages/auth/SignupEmployer";
 
 // Institution role
 import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
@@ -75,7 +75,7 @@ export default function App() {
 
         {/* Applicant (protected + role) */}
         <Route
-          path="/ApplicantPage"
+          path="/ApplicantDashboard"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["applicant"]}>
@@ -117,7 +117,7 @@ export default function App() {
 
         {/* Employer (protected + role) */}
         <Route
-          path="/AccessRequests"
+          path="/EmployerDashboard"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["employer"]}>
@@ -179,7 +179,7 @@ export default function App() {
           }
         />
         <Route
-          path="/institution/dashboard"
+          path="/InstitutionDashboard"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["institution"]}>
