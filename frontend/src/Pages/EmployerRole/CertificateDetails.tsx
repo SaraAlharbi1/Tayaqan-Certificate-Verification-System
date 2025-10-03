@@ -58,7 +58,7 @@ export default function CertificateDetailsPage() {
   const cert = useMemo(() => MOCK_CERTS[certificateId], [certificateId]);
 
   const location = useLocation();
-  const backTo = (location.state as any)?.from || "/AccessRequests";
+  const backTo = (location.state as any)?.from || "/employer/access";
 
   if (!cert) {
     return (
@@ -74,8 +74,15 @@ export default function CertificateDetailsPage() {
 
   return (
     <section className="mx-auto max-w-5xl px-6 pt-10 pb-24">
-      <h1 className="text-2xl font-bold mb-6">{cert.title}</h1>
+      {/* Page header */}
+      <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-8">
+        Certificate:{" "}
+        <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+          {cert.title}
+        </span>
+      </h1>
 
+      {/* Certificate summary table */}
       <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm mb-8">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -107,8 +114,9 @@ export default function CertificateDetailsPage() {
         </div>
       </div>
 
+      {/* Blockchain proof section */}
       <div className="rounded-xl border border-black/10 bg-white shadow-sm p-6 md:p-8">
-        <h2 className="font-semibold text-brand-700 mb-4">Blockchain Proof</h2>
+        <h2 className="text-xl font-bold mb-4 text-indigo-700">Blockchain Proof</h2>
 
         <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-3">
           <dt className="text-gray-500">Contract:</dt>
@@ -130,13 +138,20 @@ export default function CertificateDetailsPage() {
 
           <dt className="text-gray-500">Status:</dt>
           <dd className="sm:col-span-2">
-            <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-2.5 py-1 text-sm">
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-1 text-sm ${
+                cert.status === "Valid"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-rose-100 text-rose-700"
+              }`}
+            >
               {cert.status}
             </span>
           </dd>
         </dl>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-between">
+          <Link to={backTo} className="btn btn-outline">← Back</Link>
           <a href={cert.pdfUrl} target="_blank" rel="noreferrer" className="btn btn-primary">
             View PDF
           </a>

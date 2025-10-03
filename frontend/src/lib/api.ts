@@ -1,7 +1,7 @@
 /** lib/api.ts */
 import { getAccessToken, setAccessToken, getRefreshToken, clearTokens } from "./storage";
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000/api";
+const BASE_URL = "http://127.0.0.1:8000/api";
 let refreshInFlight: Promise<string | null> | null = null;
 
 async function refreshAccessToken(): Promise<string | null> {

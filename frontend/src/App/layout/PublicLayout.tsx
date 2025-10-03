@@ -12,11 +12,15 @@ const EXTRA_LIFT_PATHS: string[] = [
   "/signup/institution",
   "/forgot-password",
   "/reset-password",
-  "/InstitutionDashboard",
+  "/institution",
   "/institution/upload",
   "/applicant/certificates",
   "/applicant/requests",
+  "/employer/access",
   "/employer/access/new",
+  "/applicant",
+  "/employer",
+  "/employer/certificates/:certificateId",
 
 ];
 

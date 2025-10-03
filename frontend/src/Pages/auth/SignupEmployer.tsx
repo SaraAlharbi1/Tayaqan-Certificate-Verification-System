@@ -1,24 +1,23 @@
 // src/Pages/auth/SignupEmployer.tsx
 /**
  * Route: /signup/employer
- * Backend: POST { full_name, work_email, company_name, cr_number, phone, password, confirm_password, proof_doc }
- * Files:   multipart/form-data (proof_doc = PDF)
+ * After success → /signup/success/:role  (role = "hr")
  */
-
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { api } from "@/lib/api"; // ✅ central API helper
 
-const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000/api";
-
+// --- file checks ---
 const MAX_FILE_MB = 5;
 const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
-const phoneRegex = /^(\+?\d{8,15})$/;   // + optional, 8–15 digits
-const crRegex = /^\d{5,15}$/;           // 5–15 digits
 
-// NOTE: file is NOT in Zod; handled in component state to avoid RHF/Zod blocking.
+// --- schema (file handled outside Zod) ---
+const phoneRegex = /^(\+?\d{8,15})$/; // + optional, 8–15 digits
+const crRegex = /^\d{5,15}$/;         // 5–15 digits
+
 const schema = z
   .object({
     fullName: z.string().min(2, "Full name is required"),
@@ -65,7 +64,7 @@ export default function SignupEmployer() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // file state (outside RHF/Zod)
+  // file state (outside RHF)
   const [poaFile, setPoaFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [fileError, setFileError] = useState("");
@@ -126,7 +125,7 @@ export default function SignupEmployer() {
   const onSubmit = async (v: FormValues) => {
     setServerError("");
 
-    // final file check
+    // final file validation
     if (!poaFile) {
       setFileError("Please upload a PDF letter");
       return;
@@ -144,46 +143,38 @@ export default function SignupEmployer() {
     const fd = new FormData();
     fd.append("full_name", v.fullName);
     fd.append("work_email", v.workEmail);
-    // Some backends accept "email" too; harmless to include both:
-    fd.append("email", v.workEmail);
     fd.append("company_name", v.companyName);
     fd.append("cr_number", v.crNumber);
     fd.append("phone", v.phone);
     fd.append("password", v.password);
     fd.append("confirm_password", v.confirmPassword);
-    fd.append("proof_doc", poaFile); // backend file key
+    fd.append("proof_doc", poaFile);
 
-    const res = await fetch(`${API}/auth/signup/employer`, {
-      method: "POST",
-      body: fd, // do not set Content-Type
-    });
-
-    if (!res.ok) {
-      let msg = "";
-      try {
-        const data = await res.json();
-        msg = typeof data === "string" ? data : JSON.stringify(data);
-      } catch {
-        msg = await res.text().catch(() => "");
-      }
-      setServerError(msg || `Signup failed (${res.status})`);
-      return;
+    try {
+      await api("/auth/signup/employer/", { method: "POST", body: fd });
+      // 🔁 role-based success route
+      navigate("/signup/success/hr", { replace: true });
+    } catch (e: unknown) {
+      const message = (e as any)?.message || "Signup failed.";
+      setServerError(message);
     }
-
-    navigate("/signup/success/hr", { replace: true });
   };
 
   return (
     <section className="auth-hero">
       <div className="auth-wrap">
-        <h1 className="auth-title">
-          Get Started <span className="text-brand-600">Now.</span>
+        {/* Header (gradient, no underline) */}
+        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-3">
+          Get Started{" "}
+          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            Now.
+          </span>
         </h1>
         <p className="auth-sub">
-          Sign up <span className="text-gray-900">as HR employer</span>
+          Sign up <span className="text-gray-900">as Employer (HR)</span>
         </p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting}>
+        <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting} noValidate>
           <div className="auth-grid">
             {/* LEFT */}
             <div className="space-y-4">
@@ -275,9 +266,7 @@ export default function SignupEmployer() {
                   aria-invalid={!!errors.confirmPassword}
                   {...register("confirmPassword")}
                 />
-                {errors.confirmPassword && (
-                  <p className="form-error">{errors.confirmPassword.message}</p>
-                )}
+                {errors.confirmPassword && <p className="form-error">{errors.confirmPassword.message}</p>}
               </div>
 
               <div>
@@ -326,15 +315,17 @@ export default function SignupEmployer() {
               </div>
             </div>
 
-            {/* Actions row — match Applicant layout */}
-            <div className="mt-6 col-span-2 md:col-span-2 flex flex-col items-end">
+            {/* Actions */}
+            <div className="mt-6 col-span-2 flex flex-col items-end">
               <button type="submit" className="btn btn-primary min-w-32" disabled={isSubmitting}>
                 {isSubmitting ? "Signing up…" : "Sign up"}
               </button>
 
               <span className="text-sm text-muted mt-2">
                 Already have an account?{" "}
-                <Link to="/login" className="font-medium text-brand-600">Sign in</Link>
+                <Link to="/login" className="font-medium text-brand-600">
+                  Sign in
+                </Link>
               </span>
             </div>
           </div>

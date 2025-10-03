@@ -12,8 +12,20 @@ type Certificate = {
 
 const MOCK_DB: Record<string, Certificate[]> = {
   "12345611": [
-    { id: "ml-basics-001", title: "AI & Machine Learning (Basics)", issuer: "IBM Skills Academy", issueDate: "19-06-2024", serial: "IT-2406-00173" },
-    { id: "cyber-001", title: "Cybersecurity Fundamentals", issuer: "Cisco Academy", issueDate: "20-09-2023", serial: "CS-2309-00450" },
+    {
+      id: "ml-basics-001",
+      title: "AI & Machine Learning (Basics)",
+      issuer: "IBM Skills Academy",
+      issueDate: "19-06-2024",
+      serial: "IT-2406-00173",
+    },
+    {
+      id: "cyber-001",
+      title: "Cybersecurity Fundamentals",
+      issuer: "Cisco Academy",
+      issueDate: "20-09-2023",
+      serial: "CS-2309-00450",
+    },
   ],
 };
 
@@ -28,17 +40,27 @@ export default function ApplicantSharedCertificates() {
 
   return (
     <section className="mx-auto max-w-6xl px-6 pt-10 pb-24">
-      <h1 className="text-2xl font-bold mb-6">Shared Certificates</h1>
+      {/* Page header */}
+      <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-8">
+        Shared{" "}
+        <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+          Certificates
+        </span>
+      </h1>
 
       <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-gray-600">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold">Certificate Title</th>
+                <th className="px-4 py-3 text-left font-semibold">
+                  Certificate Title
+                </th>
                 <th className="px-4 py-3 text-left font-semibold">Issuer</th>
                 <th className="px-4 py-3 text-left font-semibold">Issue Date</th>
-                <th className="px-4 py-3 text-left font-semibold">Serial Number</th>
+                <th className="px-4 py-3 text-left font-semibold">
+                  Serial Number
+                </th>
                 <th className="px-4 py-3 text-right font-semibold">Action</th>
               </tr>
             </thead>
@@ -55,7 +77,7 @@ export default function ApplicantSharedCertificates() {
                       <Link
                         to={`/employer/certificates/${c.id}`}
                         state={{ from: location.pathname }}
-                        className="btn btn-secondary"
+                        className="btn btn-outline"
                       >
                         View
                       </Link>
@@ -66,7 +88,10 @@ export default function ApplicantSharedCertificates() {
 
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
+                  <td
+                    colSpan={5}
+                    className="px-4 py-10 text-center text-gray-500 text-sm"
+                  >
                     No certificates shared with this applicant ID.
                   </td>
                 </tr>

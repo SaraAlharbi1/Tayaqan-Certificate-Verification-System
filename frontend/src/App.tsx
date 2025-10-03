@@ -3,42 +3,43 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import PublicLayout from "./App/layout/PublicLayout";
 import ProtectedRoute from "./lib/ProtectedRoute";
 
-// Public pages
-import HomePage from "./pages/HomePage";
-import AboutPage from "./pages/AboutUsPage";
-import HowItWorksPage from "./pages/HowItWorksPage";
+/* ---------- Public pages ---------- */
+import HomePage from "./Pages/HomePage";
+import AboutPage from "./Pages/AboutUsPage";
+import HowItWorksPage from "./Pages/HowItWorksPage";
 
-// Auth
-import LoginPage from "./pages/auth/LoginPage";
-import SignupSelectionPage from "./pages/auth/SignupSelectionPage";
-import SignupInstitution from "./pages/auth/SignupInstitution";
-import SuccessPending from "./pages/auth/SuccessPending";
+/* ---------- Auth ---------- */
+import LoginPage from "./Pages/auth/LoginPage";
+import SignupSelectionPage from "./Pages/auth/SignupSelectionPage";
+import SignupInstitution from "./Pages/auth/SignupInstitution";
+import SuccessPending from "./Pages/auth/SuccessPending";
 import SignupApplicant from "./Pages/auth/SignupApplicant";
 import SignupEmployer from "./Pages/auth/SignupEmployer";
 
-//  Password reset
-import RequestResetPage from "./pages/auth/RequestResetPage";
-import ResetPasswordPage from "./pages/auth/ResetPassword";
+/* ---------- Password reset ---------- */
+import RequestResetPage from "./Pages/auth/RequestResetPage";
+import ResetPasswordPage from "./Pages/auth/ResetPassword";
 
-// Employer role
-import AccessRequests from "./Pages/EmployerRole/EmployerDashboard";
+/* ---------- Employer role ---------- */
+import EmployerHome from "./Pages/EmployerRole/EmployerHome";
+import AccessRequests from "./Pages/EmployerRole/AccessRequests";
 import CreateAccessRequest from "./Pages/EmployerRole/CreateAccessRequest";
 import ApplicantSharedCertificates from "./Pages/EmployerRole/ApplicantSharedCertificates";
 import CertificateDetailsPage from "./Pages/EmployerRole/CertificateDetails";
 
-// Applicant role
-import ApplicantPage from "./Pages/ApplicantRole/ApplicantDashboard";
+/* ---------- Applicant role ---------- */
+import ApplicantHome from "./Pages/ApplicantRole/ApplicantHome";
 import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
-import AccessReqused from "./Pages/ApplicantRole/AccessReqused";
+import AccessRequestsApplicant from "./Pages/ApplicantRole/AccessRequests";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
 
-
-// Institution role
+/* ---------- Institution role ---------- */
 import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
 import UploadSuccess from "./Pages/InstitutionRole/UploadSuccess";
-import InstitutionDashboard from "./Pages/InstitutionRole/InstitutionDashboard";
+import InstitutionHome from "./Pages/InstitutionRole/InstitutionHome";
+import IssuedCertificates from "./Pages/InstitutionRole/IssuedCertificates";
 
-// ---- Role-based guard ----
+/* ---------- Role-based guard ---------- */
 function RoleRoute({
   children,
   allow,
@@ -57,29 +58,30 @@ export default function App() {
   return (
     <PublicLayout>
       <Routes>
-        {/* Public */}
+        {/* ---------- Public ---------- */}
         <Route path="/" element={<HomePage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/how-it-works" element={<HowItWorksPage />} />
         <Route path="/login" element={<LoginPage />} />
-        {/* 🔹 Password reset (public) */}
+
+        {/* ---------- Password reset (public) ---------- */}
         <Route path="/forgot-password" element={<RequestResetPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-        {/* Signup (public) */}
+        {/* ---------- Signup (public) ---------- */}
         <Route path="/signup" element={<SignupSelectionPage />} />
         <Route path="/signup/applicant" element={<SignupApplicant />} />
         <Route path="/signup/employer" element={<SignupEmployer />} />
         <Route path="/signup/institution" element={<SignupInstitution />} />
         <Route path="/signup/success/:role" element={<SuccessPending />} />
 
-        {/* Applicant (protected + role) */}
+        {/* ---------- Applicant ---------- */}
         <Route
-          path="/ApplicantDashboard"
+          path="/applicant"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["applicant"]}>
-                <ApplicantPage />
+                <ApplicantHome />
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -99,7 +101,7 @@ export default function App() {
           element={
             <ProtectedRoute>
               <RoleRoute allow={["applicant"]}>
-                <AccessReqused />
+                <AccessRequestsApplicant />
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -115,9 +117,19 @@ export default function App() {
           }
         />
 
-        {/* Employer (protected + role) */}
+        {/* ---------- Employer ---------- */}
         <Route
-          path="/EmployerDashboard"
+          path="/employer"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["employer"]}>
+                <EmployerHome />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/employer/access"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["employer"]}>
@@ -137,7 +149,7 @@ export default function App() {
           }
         />
         <Route
-          path="/employer/applicents/:applicantId/shared"
+          path="/employer/applicants/:applicantId/shared"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["employer"]}>
@@ -157,7 +169,17 @@ export default function App() {
           }
         />
 
-        {/* Institution (protected + role) */}
+        {/* ---------- Institution ---------- */}
+        <Route
+          path="/institution"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["institution"]}>
+                <InstitutionHome />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/institution/upload"
           element={
@@ -179,17 +201,17 @@ export default function App() {
           }
         />
         <Route
-          path="/InstitutionDashboard"
+          path="/institution/certificates"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["institution"]}>
-                <InstitutionDashboard />
+                <IssuedCertificates />
               </RoleRoute>
             </ProtectedRoute>
           }
         />
 
-        {/* Fallback */}
+        {/* ---------- Fallback ---------- */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </PublicLayout>

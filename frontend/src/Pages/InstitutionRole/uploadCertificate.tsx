@@ -5,16 +5,11 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-/* -----------------------------------------------------------------------------
-  Validation rules
-  - Keep client rules in sync with backend serializers.
-  - Only PDFs up to MAX_FILE_MB are allowed.
------------------------------------------------------------------------------ */
+/* ----------------------------------------------------------------------------- */
 const MAX_FILE_MB = 5;
 const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
 const nationalIdRegex = /^\d{10}$/;
 
-/** Zod schema for the form */
 const schema = z.object({
   nationalId: z.string().regex(nationalIdRegex, "Enter a valid National ID (10 digits)"),
   fullName: z.string().min(2, "Full name is required"),
@@ -33,10 +28,8 @@ const schema = z.object({
       return f && f.size <= MAX_FILE_MB * 1024 * 1024;
     }, { message: `File must be ≤ ${MAX_FILE_MB}MB` }),
 });
-
 type FormValues = z.infer<typeof schema>;
 
-/** Small illustration inside the upload box (purely visual/a11y-hidden) */
 function UploadIllustration() {
   return (
     <div className="relative mb-3 h-20 w-20 flex items-center justify-center">
@@ -60,22 +53,14 @@ function UploadIllustration() {
   );
 }
 
-/* -----------------------------------------------------------------------------
-  UploadCertificate
-  - Two-column form: left = text fields, right = PDF uploader.
-  - Drag & drop supported (label area).
-  - Uses fetch() with multipart/form-data; credentials included for auth cookie.
-  - On success: resets the form and navigates to success page.
------------------------------------------------------------------------------ */
+/* ----------------------------------------------------------------------------- */
 export default function UploadCertificate() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // UI state derived outside RHF for convenience (selected filename + custom error)
   const [uploadName, setUploadName] = useState("");
   const [fileError, setFileError] = useState("");
 
-  // React Hook Form setup with Zod
   const {
     register,
     handleSubmit,
@@ -83,12 +68,8 @@ export default function UploadCertificate() {
     getValues,
     clearErrors,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    mode: "onChange",
-  });
+  } = useForm<FormValues>({ resolver: zodResolver(schema), mode: "onChange" });
 
-  /** Clear the file selection both in RHF and the native input */
   const clearFile = () => {
     setUploadName("");
     setFileError("");
@@ -97,44 +78,35 @@ export default function UploadCertificate() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  /** Central handler to validate a selected file list and set into RHF */
   const onSelectFile = (files: FileList | null) => {
     if (!files?.length) return clearFile();
     const f = files[0];
 
-    // Type check
     const looksPdf = f.type === "application/pdf" || isPdfByName(f.name);
     if (!looksPdf) {
       setFileError("Only PDF files are accepted");
       clearFile();
       return;
     }
-
-    // Size check
     if (f.size > MAX_FILE_MB * 1024 * 1024) {
       setFileError(`File must be ≤ ${MAX_FILE_MB}MB`);
       clearFile();
       return;
     }
-
-    // Success
     setUploadName(f.name);
     setFileError("");
     setValue("file", files, { shouldValidate: true });
     clearErrors("file");
   };
 
-  /** Drag-and-drop helpers (prevent browser opening the file) */
   const prevent = (e: React.DragEvent) => e.preventDefault();
   const onDrop: React.DragEventHandler<HTMLLabelElement> = (e) => {
     e.preventDefault();
     onSelectFile(e.dataTransfer.files);
   };
 
-  /** Pretty MB formatter for the selected file size display */
   const mb = (n: number) => (n / (1024 * 1024)).toFixed(2);
 
-  /** Submit handler: builds FormData and POSTs to backend */
   const onSubmit = async (v: FormValues) => {
     const fd = new FormData();
     fd.append("national_id", v.nationalId);
@@ -150,10 +122,8 @@ export default function UploadCertificate() {
         body: fd,
         credentials: "include",
       });
-
       if (!res.ok) throw new Error(await res.text().catch(() => "Upload failed"));
 
-      // Reset fields
       clearFile();
       setValue("nationalId", "" as any);
       setValue("fullName", "" as any);
@@ -171,25 +141,31 @@ export default function UploadCertificate() {
   return (
     <section className="auth-hero">
       <div className="auth-wrap">
-        <h1 className="auth-title">
-          Upload New <span className="text-brand-600">Certificate</span>
+        {/* Title styled like “Issued Certificates” */}
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+          Upload New{" "}
+          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            Certificate
+          </span>
         </h1>
-        <p className="auth-sub">
-          <span className="text-brand-600">Certificate</span> Details
+        <p className="mt-2 text-gray-600">
+          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            Certificate
+          </span>{" "}
+          Details
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting}>
           <div className="auth-grid">
-            {/* ================= LEFT column: text inputs ================= */}
+            {/* LEFT column */}
             <div className="space-y-4">
-              {/* National ID */}
               <div>
                 <label htmlFor="nationalId" className="form-label">National ID</label>
                 <input
                   id="nationalId"
                   type="text"
                   className="form-input"
-                  placeholder="123321123"
+                  placeholder="1233211234"
                   aria-invalid={!!errors.nationalId}
                   aria-describedby="nationalId-error"
                   {...register("nationalId")}
@@ -197,7 +173,6 @@ export default function UploadCertificate() {
                 {errors.nationalId && <p className="form-error" id="nationalId-error">{errors.nationalId.message}</p>}
               </div>
 
-              {/* Full Name */}
               <div>
                 <label htmlFor="fullName" className="form-label">Full Name</label>
                 <input
@@ -212,7 +187,6 @@ export default function UploadCertificate() {
                 {errors.fullName && <p className="form-error" id="fullName-error">{errors.fullName.message}</p>}
               </div>
 
-              {/* Certificate Title */}
               <div>
                 <label htmlFor="title" className="form-label">Certificate Title</label>
                 <input
@@ -227,7 +201,6 @@ export default function UploadCertificate() {
                 {errors.title && <p className="form-error" id="title-error">{errors.title.message}</p>}
               </div>
 
-              {/* Issue Date */}
               <div>
                 <label htmlFor="issueDate" className="form-label">Issue Date</label>
                 <input
@@ -241,7 +214,6 @@ export default function UploadCertificate() {
                 {errors.issueDate && <p className="form-error" id="issueDate-error">{errors.issueDate.message}</p>}
               </div>
 
-              {/* Serial Number */}
               <div>
                 <label htmlFor="serialNumber" className="form-label">Serial Number</label>
                 <input
@@ -257,12 +229,11 @@ export default function UploadCertificate() {
               </div>
             </div>
 
-            {/* ================= RIGHT column: PDF upload ================= */}
+            {/* RIGHT column */}
             <div className="space-y-4">
               <div>
                 <label htmlFor="file" className="form-label block">Upload Certificate</label>
 
-                {/* Drop area (label tied to hidden file input) */}
                 <label
                   htmlFor="file"
                   className="upload-box group"
@@ -276,7 +247,6 @@ export default function UploadCertificate() {
                   <div className="text-sm text-muted">Supported PDF format</div>
                 </label>
 
-                {/* Hidden native input; we manage selection via onChange */}
                 <input
                   id="file"
                   type="file"
@@ -289,7 +259,6 @@ export default function UploadCertificate() {
                   onChange={(e) => onSelectFile(e.target.files)}
                 />
 
-                {/* Selected file summary + remove button */}
                 {uploadName && (
                   <div className="mt-3 text-sm">
                     <span className="badge badge-success">Selected</span> {uploadName}
@@ -302,7 +271,6 @@ export default function UploadCertificate() {
                   </div>
                 )}
 
-                {/* File-related errors (custom or from Zod) */}
                 {(fileError || errors.file) && (
                   <p className="form-error" aria-live="polite">
                     {fileError || String(errors.file?.message)}
@@ -310,7 +278,6 @@ export default function UploadCertificate() {
                 )}
               </div>
 
-              {/* Submit button */}
               <div className="form-actions justify-end">
                 <button type="submit" className="btn btn-primary min-w-32" disabled={isSubmitting}>
                   {isSubmitting ? "Uploading…" : "Upload"}
