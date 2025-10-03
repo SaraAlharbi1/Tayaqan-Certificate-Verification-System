@@ -8,18 +8,23 @@ export const LINKS: Record<Role, LinkItem[]> = {
     { to: "/about", label: "About us" },
     { to: "/how-it-works", label: "How it works" },
   ],
+
   applicant: [
-    { to: "/ApplicantDashboard", label: "My Certificates", end: true }, // matches App.tsx
+    { to: "/applicant", label: "Home", end: true },
+    { to: "/applicant/certificates", label: "My Certificates" },
     { to: "/applicant/requests", label: "Access Requests" },
   ],
+
   employer: [
-    { to: "/EmployerDashboard", label: "Dashboard", end: true },   // matches App.tsx
-    { to: "/employer/access/new", label: "Create Access Request" },
+    { to: "/employer", label: "Home", end: true },
+    { to: "/employer/access", label: "Access Requests", end: true },
+    { to: "/employer/access/new", label: "New Request", end: true },
   ],
+
   institution: [
-    { to: "/institution/dashboard", label: "Dashboard", end: true },
+    { to: "/institution", label: "Home", end: true },
+    { to: "/institution/certificates", label: "Issued Certificates", end: true },
     { to: "/institution/upload", label: "Upload Certificate" },
-    // Add more when routes exist (e.g., /institution/students)
   ],
 };
 

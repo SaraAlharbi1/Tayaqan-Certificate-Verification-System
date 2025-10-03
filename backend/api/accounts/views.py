@@ -54,21 +54,45 @@ class MeView(APIView):
         profile = {}
         status_text = None
 
+        # Applicant fields
         if user.role == User.Roles.APPLICANT and hasattr(user, "applicant"):
             a = user.applicant
-            profile = {"full_name": a.full_name, "national_id": a.national_id_plain, "phone": a.phone}
+            profile = {
+                "full_name": a.full_name,
+                "national_id": a.national_id_plain,
+                "phone": a.phone,
+            }
+
+        # Employer fields
         elif user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
             e = user.employer
-            profile = {"full_name": e.full_name, "company_name": e.company_name, "cr_number": e.cr_number_plain}
+            profile = {
+                "full_name": e.full_name,
+                "company_name": e.company_name,
+                "cr_number": e.cr_number_plain,
+            }
             status_text = e.status
+
+        # Institution fields (add phone/official_email so frontend can show them)
         elif user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
-            i = user.institution
-            profile = {"institution_name": i.institution_name, "department": i.department}
+            i: Institution = user.institution
+            profile = {
+                "institution_name": i.institution_name,
+                "department": i.department,
+                "phone": getattr(i, "phone", None),
+                "official_email": getattr(i, "official_email", None),
+            }
             status_text = i.status
 
-        payload = {"id": user.id, "email": user.email, "role": user.role, "profile": profile}
+        payload = {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "profile": profile,
+        }
         if status_text:
             payload["status"] = status_text
+
         return Response(MeSerializer(payload).data, status=status.HTTP_200_OK)
 
 

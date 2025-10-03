@@ -46,9 +46,6 @@ export default function SuccessPending() {
             <span className="animate-spin text-rose-500">⏳</span>
           </div>
 
-          <div className="mt-6">
-            <Link to="/login" className="btn btn-primary">Go to Login</Link>
-          </div>
         </div>
       </div>
     </section>

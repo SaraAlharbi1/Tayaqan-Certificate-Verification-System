@@ -12,24 +12,24 @@ const normRole = (r: unknown) =>
 
 // Extract most helpful backend error message (DRF-compatible)
 async function getErrorMessage(err: any): Promise<string> {
-  // Axios-style: err.response.data
   const dataFromAxios = err?.response?.data;
   if (dataFromAxios) {
     const msg =
       dataFromAxios.detail ??
       dataFromAxios.non_field_errors?.[0] ??
-      Object.values(dataFromAxios).flat?.()?.[0];
+      (Array.isArray(Object.values(dataFromAxios)) &&
+        (Object.values(dataFromAxios) as any).flat?.()?.[0]);
     if (msg) return String(msg);
   }
 
-  // Fetch-style: thrown Response
   if (err instanceof Response) {
     try {
       const data = await err.json();
       const msg =
         data?.detail ??
         data?.non_field_errors?.[0] ??
-        Object.values(data ?? {}).flat?.()?.[0];
+        (Array.isArray(Object.values(data)) &&
+          (Object.values(data) as any).flat?.()?.[0]);
       if (msg) return String(msg);
     } catch {
       /* ignore */
@@ -76,15 +76,15 @@ export default function LoginPage() {
 
       // 4) Route by role
       if (role === "institution") {
-        nav("/InstitutionDashboard", { replace: true });
+        nav("/institution", { replace: true });
         return;
       }
       if (role === "employer") {
-        nav("/EmployerDashboard", { replace: true });
+        nav("/employer", { replace: true });
         return;
       }
       if (role === "applicant") {
-        nav("/ApplicantDashboard", { replace: true });
+        nav("/applicant", { replace: true });
         return;
       }
 
@@ -98,14 +98,22 @@ export default function LoginPage() {
   }
 
   return (
-    <section className="bg-gradient-to-b from-white to-surface min-h-[70vh]">
-      <div className="mx-auto max-w-6xl px-6 py-8 md:py-10 flex justify-center">
+    <section className="bg-gradient-to-b from-white to-surface -mt-6 md:-mt-10">
+      <div className="mx-auto max-w-6xl px-6 pt-8 md:pt-10 pb-14 md:pb-16 flex justify-center">
         <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 md:p-8 shadow-sm">
+          {/* Heading (brand gradient + underline to match site style) */}
           <div className="mb-6 text-center">
-            <h1 className="text-3xl md:text-4xl font-bold">
-              Welcome <span className="text-brand-600">Back.</span>
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">
+              Welcome{" "}
+              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                back
+              </span>
+              .
             </h1>
-            <p className="text-muted mt-1">
+            <div className="flex justify-center mt-2">
+              <span className="block h-1 w-16 bg-brand-600 rounded-full" />
+            </div>
+            <p className="text-muted mt-3">
               <span className="text-brand-600 font-semibold">Sign in</span> to your account
             </p>
           </div>
@@ -121,7 +129,7 @@ export default function LoginPage() {
                   setIdentifier(e.target.value);
                   if (error) setError(null);
                 }}
-                className="w-full rounded-xl border border-brand-600/40 px-4 py-2 outline-none focus:ring-2 focus:ring-brand-600/40"
+                className="w-full h-11 rounded-xl border border-gray-200 px-4 outline-none focus:ring-2 focus:ring-indigo-500/30"
                 placeholder="demo@example.com or 1234567890"
                 autoComplete="username"
                 inputMode="text"
@@ -138,7 +146,7 @@ export default function LoginPage() {
                   setPassword(e.target.value);
                   if (error) setError(null);
                 }}
-                className="w-full rounded-xl border border-brand-600/20 px-4 py-2 outline-none focus:ring-2 focus:ring-brand-600/40"
+                className="w-full h-11 rounded-xl border border-gray-200 px-4 outline-none focus:ring-2 focus:ring-indigo-500/30"
                 placeholder="Enter your password"
                 autoComplete="current-password"
               />
@@ -148,6 +156,7 @@ export default function LoginPage() {
               <div
                 className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-rose-700 text-sm"
                 role="alert"
+                aria-live="assertive"
               >
                 {error}
               </div>
@@ -160,7 +169,7 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                className="inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium border border-brand-600 bg-brand-600 text-white disabled:opacity-60"
+                className="btn btn-primary"
                 disabled={loading}
                 aria-busy={loading}
               >

@@ -22,7 +22,7 @@ export default function CertificatesPage() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    const t = setTimeout(() => setQ(search.trim().toLowerCase()), 350);
+    const t = setTimeout(() => setQ(search.trim().toLowerCase()), 300);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -36,79 +36,85 @@ export default function CertificatesPage() {
   }, [q, certificates]);
 
   return (
-    // شيلنا الـpy الكثيرة وخلينا pt-4 فقط
-    <section className="px-6 pt-4 pb-8">
-      <div className="mx-auto max-w-6xl">
-        {/* العنوان */}
-        <h1 className="text-3xl md:text-4xl font-bold text-blue-900 mb-6">
-          My Certificates
+    <section className="pt-2 md:pt-3 -mt-6 md:-mt-10 pb-10">
+      <div className="mx-auto max-w-6xl px-6">
+        {/* Page title — same style as other pages with gradient accent */}
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-4">
+          My{" "}
+          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            Certificates
+          </span>
         </h1>
 
-        {/* شريط البحث */}
-        <div className="mb-4 w-full">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search"
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 pr-20 shadow-sm outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <p className="mt-2 text-sm text-slate-500">
-            Showing {filtered.length} of {certificates.length}
-          </p>
-        </div>
-
-        {/* الجدول */}
-        <div className="overflow-x-auto rounded-2xl bg-white shadow">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-gray-100 text-left text-sm font-semibold text-gray-600">
-                <th className="px-6 py-3">Certificate Title</th>
-                <th className="px-6 py-3">Issuer</th>
-                <th className="px-6 py-3">Issue Date</th>
-                <th className="px-6 py-3">Serial Number</th>
-                <th className="px-6 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <tr key={c.id} className="border-t">
-                  <td className="px-6 py-4">{c.title}</td>
-                  <td className="px-6 py-4">{c.issuer}</td>
-                  <td className="px-6 py-4">
-                    {new Date(c.issueDate).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4">{c.serial}</td>
-                  <td className="px-6 py-4">
-                    <Link
-                      to={`/applicant/certificates/${c.id}`}
-                      className="inline-block px-4 py-1 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700"
-                    >
-                      View
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                    No certificates match your search.
-                  </td>
-                </tr>
+        {/* Card */}
+        <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
+          {/* Search */}
+          <div className="p-4 border-b border-gray-100">
+            <label htmlFor="cert-search" className="sr-only">
+              Search certificates
+            </label>
+            <div className="relative">
+              <input
+                id="cert-search"
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search certificates…"
+                className="w-full h-12 rounded-xl border border-gray-200 bg-white px-4 pr-20 outline-none focus:ring-2 focus:ring-indigo-500/30"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-3 py-1 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  Clear
+                </button>
               )}
-            </tbody>
-          </table>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">
+              Showing {filtered.length} of {certificates.length}
+            </p>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">Certificate Title</th>
+                  <th className="px-4 py-3 text-left font-semibold">Issuer</th>
+                  <th className="px-4 py-3 text-left font-semibold">Issue Date</th>
+                  <th className="px-4 py-3 text-left font-semibold">Serial Number</th>
+                  <th className="px-4 py-3 text-right font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map((c) => (
+                  <tr key={c.id} className="hover:bg-gray-50/60">
+                    <td className="px-4 py-3">{c.title}</td>
+                    <td className="px-4 py-3">{c.issuer}</td>
+                    <td className="px-4 py-3">{new Date(c.issueDate).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">{c.serial}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end">
+                        <Link to={`/applicant/certificates/${c.id}`} className="btn btn-secondary">
+                          View
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">
+                      No certificates match your search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>

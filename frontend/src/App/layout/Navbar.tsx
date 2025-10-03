@@ -7,11 +7,10 @@ type Role = keyof typeof LINKS;
 
 function detectRole(pathname: string): Role {
   const p = pathname.toLowerCase();
-
-  if (FORCE_PUBLIC_ON.some(x => p.startsWith(x))) return "public";
-  if (p.startsWith("/institution") || p === "/institutiondashboard") return "institution";
-  if (p.startsWith("/employer") || p === "/employerdashboard") return "employer";
-  if (p.startsWith("/applicant") || p === "/applicantdashboard") return "applicant";
+  if (FORCE_PUBLIC_ON.some((x) => p.startsWith(x))) return "public";
+  if (p.startsWith("/institution")) return "institution";
+  if (p.startsWith("/employer")) return "employer";
+  if (p.startsWith("/applicant")) return "applicant";
   return "public";
 }
 
@@ -25,25 +24,29 @@ export default function Navbar({ dense = false }: { dense?: boolean }) {
 
   return (
     <header className={`relative text-white ${headerMargin}`}>
-      {/* Decorative curve */}
       <img
         src={NavbarWave}
         alt=""
         className="absolute inset-0 w-full h-auto pointer-events-none select-none"
       />
 
-      {/* Navbar links */}
       <div className="relative z-10">
         <nav
           className={`mx-auto max-w-6xl px-6 ${padTop} ${padBottom}
-            flex justify-center gap-16 text-lg md:text-xl font-semibold`}
+            flex justify-center gap-12 md:gap-16 text-lg md:text-xl font-semibold`}
         >
           {LINKS[role].map(({ to, label, end }) => (
             <NavLink
               key={to}
               to={to}
-              end={end}
-              className="text-white hover:opacity-90 transition-colors"
+              end={end} // exact match; prevents /employer/access from matching /employer/access/new
+              className={({ isActive }) =>
+                `transition-all duration-200 relative ${
+                  isActive
+                    ? "text-white after:absolute after:bottom-[-4px] after:left-0 after:right-0 after:h-0.5 after:bg-white after:rounded-full"
+                    : "text-white/90 hover:text-white"
+                }`
+              }
             >
               {label}
             </NavLink>

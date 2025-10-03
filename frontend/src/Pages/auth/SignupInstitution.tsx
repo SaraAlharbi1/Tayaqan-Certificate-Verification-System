@@ -1,17 +1,20 @@
 // src/Pages/auth/SignupInstitution.tsx
+/**
+ * Route: /signup/institution
+ * After success → /signup/success/:role  (role = "institution")
+ */
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-
-const API = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000/api";
+import { api } from "@/lib/api"; // ✅ central API helper
 
 // --- file checks ---
 const MAX_FILE_MB = 5;
 const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
 
-// --- schema (no file in Zod; file handled in state) ---
+// --- schema (file handled outside Zod) ---
 const phoneRegex = /^(\+?\d{8,15})$/;
 const schema = z
   .object({
@@ -38,7 +41,13 @@ function UploadIllustration() {
   return (
     <div className="relative mb-3 h-20 w-20 flex items-center justify-center">
       <div className="absolute inset-0 rounded-full bg-brand-50" />
-      <svg className="relative h-10 w-10 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <svg
+        className="relative h-10 w-10 text-brand-600"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
         <path d="M7 16h10a4 4 0 0 0 .5-7.965A6 6 0 0 0 6 9a4 4 0 0 0 1 7z" />
         <path d="M12 13V8" />
         <path d="M9.5 10.5 12 8l2.5 2.5" />
@@ -113,7 +122,7 @@ export default function SignupInstitution() {
   const onSubmit = async (v: FormValues) => {
     setServerError("");
 
-    // final file gate
+    // final file validation
     if (!poaFile) {
       setFileError("Please upload a PDF letter");
       return;
@@ -136,39 +145,31 @@ export default function SignupInstitution() {
     fd.append("password", v.password);
     fd.append("confirm_password", v.confirmPassword);
     fd.append("proof_doc", poaFile);
-    fd.append("role", "INSTITUTION"); // optional
 
-    const res = await fetch(`${API}/auth/signup/institution`, {
-      method: "POST",
-      body: fd,
-    });
-
-    if (!res.ok) {
-      let msg = "";
-      try {
-        const data = await res.json();
-        msg = typeof data === "string" ? data : JSON.stringify(data);
-      } catch {
-        msg = await res.text().catch(() => "");
-      }
-      setServerError(msg || `Signup failed (${res.status})`);
-      return;
+    try {
+      await api("/auth/signup/institution/", { method: "POST", body: fd });
+      navigate("/signup/success/institution", { replace: true });
+    } catch (e: unknown) {
+      const message = (e as any)?.message || "Signup failed.";
+      setServerError(message);
     }
-
-    navigate("/signup/success/institution", { replace: true });
   };
 
   return (
     <section className="auth-hero">
       <div className="auth-wrap">
-        <h1 className="auth-title">
-          Get Started <span className="text-brand-600">Now.</span>
+        {/* Header (gradient, no underline) */}
+        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-3">
+          Get Started{" "}
+          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            Now.
+          </span>
         </h1>
         <p className="auth-sub">
           Sign up <span className="text-gray-900">as Institution</span>
         </p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting}>
+        <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting} noValidate>
           <div className="auth-grid">
             {/* LEFT */}
             <div className="space-y-4">
@@ -279,7 +280,8 @@ export default function SignupInstitution() {
 
                 {uploadName && (
                   <div className="mt-3 text-sm">
-                    <span className="badge badge-success">Selected</span> {uploadName}
+                    <span className="badge badge-success">Selected</span>{" "}
+                    {uploadName}
                     <span className="ml-2 text-muted">
                       {poaFile ? ` (${mb(poaFile.size)} MB)` : null}
                     </span>
@@ -297,15 +299,17 @@ export default function SignupInstitution() {
               </div>
             </div>
 
-            {/* Actions row — same layout as Applicant/Employer */}
-            <div className="mt-6 col-span-2 md:col-span-2 flex flex-col items-end">
+            {/* Actions */}
+            <div className="mt-6 col-span-2 flex flex-col items-end">
               <button type="submit" className="btn btn-primary min-w-32" disabled={isSubmitting}>
                 {isSubmitting ? "Signing up…" : "Sign up"}
               </button>
 
               <span className="text-sm text-muted mt-2">
                 Already have an account?{" "}
-                <Link to="/login" className="font-medium text-brand-600">Sign in</Link>
+                <Link to="/login" className="font-medium text-brand-600">
+                  Sign in
+                </Link>
               </span>
             </div>
           </div>

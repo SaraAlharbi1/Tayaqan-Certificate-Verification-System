@@ -1,11 +1,7 @@
 // src/Pages/EmployerRole/CreateAccessRequest.tsx
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
-/**
- * Minimal applicant type for demo purposes.
- * Replace with your API response type when you wire the backend.
- */
 type Applicant = {
   id: string;
   name: string;
@@ -13,7 +9,6 @@ type Applicant = {
   phone: string;
 };
 
-// Demo dataset (mock). You can replace this with an API call.
 const MOCK_APPLICANTS: Applicant[] = [
   {
     id: "12345111",
@@ -21,34 +16,29 @@ const MOCK_APPLICANTS: Applicant[] = [
     email: "rbinalabdullah@stg.kau.edu.sa",
     phone: "0533750087",
   },
-  // add more…
+  // add more as needed
 ];
 
 export default function CreateAccessRequest() {
   const navigate = useNavigate();
 
-  // Local state: search query and submission state
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Resolve the applicant by exact ID match (update logic as needed)
+  const trimmed = query.trim();
   const applicant = useMemo(
-    () => MOCK_APPLICANTS.find((a) => a.id === query.trim()),
-    [query]
+    () => MOCK_APPLICANTS.find((a) => a.id === trimmed) || null,
+    [trimmed]
   );
 
-  // Simulated submit handler
   const handleSubmit = async () => {
     if (!applicant) return;
     try {
       setSubmitting(true);
-
-      // TODO: Call your API, e.g.:
-      // await api.post('/employer/access-requests', { applicantId: applicant.id, reason: ... })
-
-      // Simple UX feedback for demo
+      // TODO: POST to your API:
+      // await api.post('/employer/access-requests', { applicantId: applicant.id })
       alert(`Access request sent for ID ${applicant.id}`);
-      navigate("/Pages/EmployerRole/AccessRequests"); // back to list page (adjust route if needed)
+      navigate("/employer/access"); // correct route back to list
     } catch (err) {
       alert("Failed to send request. Please try again.");
     } finally {
@@ -58,10 +48,23 @@ export default function CreateAccessRequest() {
 
   return (
     <section className="mx-auto max-w-6xl px-6 pt-10 pb-24">
-      {/* Page title */}
-      <h1 className="text-2xl font-bold mb-6">Certificate Access Request</h1>
+      {/* Title (gradient like other pages) */}
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+          Create{" "}
+          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+            Access Request
+          </span>
+        </h1>
+        <Link to="/employer/access" className="text-indigo-600 hover:underline">
+          ← Back to Access Requests
+        </Link>
+      </div>
+      <p className="text-gray-600 mb-8">
+        Enter the applicant’s national ID to request access to their certificates.
+      </p>
 
-      {/* Search input (by Applicant ID) */}
+      {/* Search by Applicant ID */}
       <div className="mb-6">
         <label htmlFor="search" className="sr-only">
           Search by Applicant ID
@@ -71,10 +74,13 @@ export default function CreateAccessRequest() {
             id="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSubmit();
+            }}
             placeholder="Search by Applicant ID…"
             className="w-full h-12 rounded-xl border border-black/10 px-4 pr-10 outline-none focus:ring-2 focus:ring-brand-500"
           />
-          
+          {/* optional icon slot on the right if you add one later */}
         </div>
         <p className="text-sm text-gray-500 mt-2">
           Type an exact ID (e.g., <code>12345111</code>) to load applicant info.
@@ -82,10 +88,9 @@ export default function CreateAccessRequest() {
       </div>
 
       {/* Applicant card */}
-      {applicant && (
+      {applicant ? (
         <div className="rounded-xl border border-black/10 bg-white shadow-sm p-6 md:p-8 mb-6">
-          <h2 className="font-semibold text-brand-700 mb-4">Applicant info</h2>
-
+          <h2 className="font-semibold text-brand-700 mb-4">Applicant Info</h2>
           <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-3">
             <dt className="text-gray-500">Name</dt>
             <dd className="sm:col-span-2">{applicant.name}</dd>
@@ -100,17 +105,26 @@ export default function CreateAccessRequest() {
             <dd className="sm:col-span-2">{applicant.phone}</dd>
           </dl>
         </div>
-      )}
+      ) : trimmed ? (
+        <div className="rounded-xl border border-black/10 bg-white shadow-sm p-5 mb-6 text-sm text-gray-600">
+          No applicant found for ID <span className="font-mono">{trimmed}</span>.
+        </div>
+      ) : null}
 
-      {/* Submit button */}
-      <div className="flex justify-end">
+      {/* Actions */}
+      <div className="flex justify-end gap-3">
+        <Link to="/employer/access" className="btn btn-ghost">
+          Cancel
+        </Link>
         <button
           type="button"
           onClick={handleSubmit}
           disabled={!applicant || submitting}
-          className={`btn btn-primary ${!applicant || submitting ? "opacity-60 cursor-not-allowed" : ""}`}
+          className={`btn btn-primary ${
+            !applicant || submitting ? "opacity-60 cursor-not-allowed" : ""
+          }`}
         >
-          {submitting ? "Sending..." : "Send Request Access"}
+          {submitting ? "Sending…" : "Send Request Access"}
         </button>
       </div>
     </section>

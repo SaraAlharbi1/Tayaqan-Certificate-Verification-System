@@ -19,17 +19,25 @@ export default function AboutUsPage() {
       <section className="bg-gradient-to-b from-white to-surface -mt-6 md:-mt-10">
         <div className="mx-auto max-w-6xl px-6 pt-6 md:pt-8 pb-12 md:pb-16 grid md:grid-cols-2 gap-8 md:gap-10 items-start">
           {/* Left: title + copy + CTA */}
-          <div>
-            <h1 className="text-4xl md:text-5xl font-bold leading-tight">
-              About <span className="text-brand-600">Tayaqan.</span>
+          <div className="flex flex-col justify-center">
+            <h1 className="text-4xl md:text-5xl font-extrabold leading-tight tracking-tight text-slate-900">
+              About{" "}
+              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                Tayaqan
+              </span>
+              .
             </h1>
-            <p className="mt-2 md:mt-3 text-muted max-w-xl">
-              <span className="text-brand-600 font-bold">Tayaqan</span> is a secure platform for certificate issuance and
-              verification, empowering students, simplifying processes for
-              institutions, and enabling trusted hiring for employers.
-            </p>
-            <div className="mt-4 md:mt-5">
-              <Link to="/signup" className="btn btn-primary">Get Started</Link>
+
+            <div className="mt-3 text-muted max-w-xl">
+              <p>
+                <span className="font-semibold text-brand-600">Tayaqan</span> is a secure platform for
+                certificate issuance and verification, giving users control over their credentials,
+                simplifying processes for all parties, and enabling trusted and transparent validation.
+              </p>
+
+              <div className="mt-5">
+                <Link to="/signup" className="btn btn-primary">Get Started</Link>
+              </div>
             </div>
           </div>
 
@@ -37,8 +45,9 @@ export default function AboutUsPage() {
           <div className="relative flex justify-center md:justify-end">
             <img
               src={HeroIllustration}
-              alt="About Tayaqan Illustration"
-              className="w-auto max-h-[28rem] md:max-h-[36rem] -translate-y-4 md:-translate-y-6"
+              alt="About Tayaqan illustration"
+              className="w-auto max-h-[28rem] md:max-h-[36rem] -translate-y-4 md:-translate-y-6 select-none"
+              draggable={false}
             />
           </div>
         </div>
@@ -47,10 +56,15 @@ export default function AboutUsPage() {
       {/* -------------------- MISSION & VISION -------------------- */}
       <section className="py-16 bg-white">
         <div className="mx-auto max-w-6xl px-6 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-10">
-            Our <span className="text-brand-600">Mission</span>{" "}
-           <span className="text-black">&</span>{" "}
-           <span className="text-brand-600">Vision</span>
+          <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-10">
+            Our{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Mission
+            </span>{" "}
+            &{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Vision
+            </span>
           </h2>
 
           <div className="grid gap-6 md:grid-cols-2 text-left">
@@ -63,14 +77,14 @@ export default function AboutUsPage() {
                 <div>
                   <h3 className="text-xl font-semibold mb-2">Our Mission</h3>
                   <p className="text-muted">
-                    To build trust in education and employment by providing a{" "}
+                    Build trust in education and employment by providing a{" "}
                     <span className="font-semibold text-brand-600">transparent</span> and{" "}
-                    <span className="font-semibold text-brand-600">secure</span> platform for
-                    managing, issuing, and verifying academic and professional certificates.
+                    <span className="font-semibold text-brand-600">secure</span> platform for managing,
+                    issuing, and verifying academic and professional certificates.
                   </p>
                 </div>
               </div>
-              <span className="pointer-events-none absolute inset-0 rounded-2xl ring-0 ring-brand-600/10 transition group-hover:ring-2 group-focus-within:ring-2"></span>
+              <span className="pointer-events-none absolute inset-0 rounded-2xl ring-0 ring-brand-600/10 transition group-hover:ring-2 group-focus-within:ring-2" />
             </div>
 
             {/* Vision */}
@@ -82,13 +96,14 @@ export default function AboutUsPage() {
                 <div>
                   <h3 className="text-xl font-semibold mb-2">Our Vision</h3>
                   <p className="text-muted">
-                    To become the <span className="font-semibold text-brand-600">leading national</span>{" "}
-                    platform for digital credential verification, aligned with Saudi Arabia’s Vision 2030
-                    and global transformation toward a knowledge economy.
+                    Become the{" "}
+                    <span className="font-semibold text-brand-600">leading national</span> platform for
+                    digital credential verification—aligned with Saudi Arabia’s Vision 2030 and the global
+                    shift toward a knowledge economy.
                   </p>
                 </div>
               </div>
-              <span className="pointer-events-none absolute inset-0 rounded-2xl ring-0 ring-brand-600/10 transition group-hover:ring-2 group-focus-within:ring-2"></span>
+              <span className="pointer-events-none absolute inset-0 rounded-2xl ring-0 ring-brand-600/10 transition group-hover:ring-2 group-focus-within:ring-2" />
             </div>
           </div>
         </div>
@@ -97,11 +112,14 @@ export default function AboutUsPage() {
       {/* -------------------- STAKEHOLDERS -------------------- */}
       <section className="py-16 bg-white">
         <div className="mx-auto max-w-6xl px-6 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-10">
-            Our <span className="text-brand-600">Stakeholders</span>
+          <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-10">
+            Our{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Stakeholders
+            </span>
           </h2>
 
-          <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-3">
             <ObjectiveCard
               title="Educational Institutions"
               description="Issue tamper-proof digital certificates quickly and securely."
@@ -116,7 +134,7 @@ export default function AboutUsPage() {
             />
             <ObjectiveCard
               title="Applicants"
-              description="Decide which certificates to share, giving you complete control over your credentials."
+              description="Keep full control over which certificates you share and with whom."
               iconSrc={ApplicantLogo}
               iconAlt="Applicants"
             />
