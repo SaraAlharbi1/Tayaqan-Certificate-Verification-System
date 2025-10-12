@@ -3,6 +3,10 @@ from django.db import models
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.html import format_html
+from django.core.mail import send_mail
+from django.conf import settings
+from django.template.loader import render_to_string
+
 from .models import User, Applicant, Employer, Institution
 
 # ---- Users ----
@@ -28,6 +32,25 @@ def _proof_link(filefield):
         return format_html('<a href="{}" target="_blank">Download PDF</a>', filefield.url)
     return "—"
 
+def _notify_status_change(kind, obj, to_email):
+    ctx = {
+        "kind": kind,  # "institution" | "employer"
+        "name": getattr(obj, "institution_name", None) or getattr(obj, "full_name", ""),
+        "status": (obj.status or "").lower(),
+        "notes": (obj.status_notes or "").strip(),
+        "dashboard_url": "http://localhost:5173/login",
+    }
+    text_body = render_to_string("status_update.txt", ctx)
+    html_body = render_to_string("status_update.html", ctx)
+    send_mail(
+        subject="Tayaqan Registration Status Updated",
+        message=text_body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[to_email],
+        html_message=html_body,
+        fail_silently=True,
+    )
+
 # ---- Applicants (signup fields) ----
 @admin.register(Applicant)
 class ApplicantAdmin(admin.ModelAdmin):
@@ -48,7 +71,16 @@ class EmployerAdmin(admin.ModelAdmin):
     readonly_fields = ("proof_link",)
 
     @admin.display(description="Proof")
-    def proof_link(self, obj): return _proof_link(obj.proof_doc)
+    def proof_link(self, obj):
+        return _proof_link(obj.proof_doc)
+
+    def save_model(self, request, obj, form, change):
+        old_status = None
+        if obj.pk:
+            old_status = Employer.objects.get(pk=obj.pk).status
+        super().save_model(request, obj, form, change)
+        if change and obj.status != old_status:
+            _notify_status_change("employer", obj, obj.work_email)
 
 # ---- Institutions (signup fields) ----
 @admin.register(Institution)
@@ -64,4 +96,13 @@ class InstitutionAdmin(admin.ModelAdmin):
     readonly_fields = ("proof_link",)
 
     @admin.display(description="Proof")
-    def proof_link(self, obj): return _proof_link(obj.proof_doc)
+    def proof_link(self, obj):
+        return _proof_link(obj.proof_doc)
+
+    def save_model(self, request, obj, form, change):
+        old_status = None
+        if obj.pk:
+            old_status = Institution.objects.get(pk=obj.pk).status
+        super().save_model(request, obj, form, change)
+        if change and obj.status != old_status:
+            _notify_status_change("institution", obj, obj.official_email)

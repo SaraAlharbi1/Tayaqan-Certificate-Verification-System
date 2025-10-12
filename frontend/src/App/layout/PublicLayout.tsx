@@ -21,7 +21,6 @@ const EXTRA_LIFT_PATHS: string[] = [
   "/applicant",
   "/employer",
   "/employer/certificates/:certificateId",
-
 ];
 
 export default function PublicLayout({ children }: PropsWithChildren) {

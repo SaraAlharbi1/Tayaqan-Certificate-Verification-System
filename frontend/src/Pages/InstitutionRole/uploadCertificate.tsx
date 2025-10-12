@@ -4,29 +4,19 @@ import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { api } from "@/lib/api";
 
-/* ----------------------------------------------------------------------------- */
 const MAX_FILE_MB = 5;
 const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
 const nationalIdRegex = /^\d{10}$/;
 
+// NOTE: file is NOT part of the schema; we validate it manually.
 const schema = z.object({
   nationalId: z.string().regex(nationalIdRegex, "Enter a valid National ID (10 digits)"),
   fullName: z.string().min(2, "Full name is required"),
   title: z.string().min(2, "Certificate title is required"),
   issueDate: z.string().min(1, "Issue date is required"),
   serialNumber: z.string().min(1, "Serial number is required"),
-  file: z
-    .any()
-    .refine((v) => v instanceof FileList && v.length === 1, { message: "Please upload a PDF" })
-    .refine((files) => {
-      const f = (files as FileList).item(0);
-      return f && (f.type === "application/pdf" || isPdfByName(f.name));
-    }, { message: "Only PDF files are accepted" })
-    .refine((files) => {
-      const f = (files as FileList).item(0);
-      return f && f.size <= MAX_FILE_MB * 1024 * 1024;
-    }, { message: `File must be ≤ ${MAX_FILE_MB}MB` }),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -35,129 +25,135 @@ function UploadIllustration() {
     <div className="relative mb-3 h-20 w-20 flex items-center justify-center">
       <div className="absolute inset-0 rounded-full bg-brand-50" aria-hidden="true" />
       <svg
-        className="relative h-10 w-10 text-brand-600 transition-colors"
+        className="relative h-10 w-10 text-brand-600"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
       >
         <path d="M7 16h10a4 4 0 0 0 .5-7.965A6 6 0 0 0 6 9a4 4 0 0 0 1 7z" />
         <path d="M12 13V8" />
         <path d="M9.5 10.5 12 8l2.5 2.5" />
       </svg>
-      <div className="absolute inset-0 rounded-full border-2 border-dotted border-border group-hover:border-brand-600 transition-colors" />
+      <div className="absolute inset-0 rounded-full border-2 border-dotted border-border" />
     </div>
   );
 }
 
-/* ----------------------------------------------------------------------------- */
 export default function UploadCertificate() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [file, setFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [fileError, setFileError] = useState("");
+  const [serverError, setServerError] = useState("");
 
   const {
     register,
     handleSubmit,
-    setValue,
-    getValues,
-    clearErrors,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema), mode: "onChange" });
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    mode: "onChange",
+  });
 
-  const clearFile = () => {
-    setUploadName("");
-    setFileError("");
-    const empty = new DataTransfer().files;
-    setValue("file", empty, { shouldValidate: true });
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const onSelectFile = (files: FileList | null) => {
-    if (!files?.length) return clearFile();
-    const f = files[0];
-
+  const pickFile = (files: FileList | null) => {
+    const f = files?.[0] || null;
+    setServerError("");
+    if (!f) {
+      setFile(null);
+      setUploadName("");
+      setFileError("Please upload a PDF");
+      return;
+    }
     const looksPdf = f.type === "application/pdf" || isPdfByName(f.name);
     if (!looksPdf) {
+      setFile(null);
+      setUploadName("");
       setFileError("Only PDF files are accepted");
-      clearFile();
       return;
     }
     if (f.size > MAX_FILE_MB * 1024 * 1024) {
+      setFile(null);
+      setUploadName("");
       setFileError(`File must be ≤ ${MAX_FILE_MB}MB`);
-      clearFile();
       return;
     }
+    setFile(f);
     setUploadName(f.name);
     setFileError("");
-    setValue("file", files, { shouldValidate: true });
-    clearErrors("file");
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    setUploadName("");
+    setFileError("");
+    setServerError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const prevent = (e: React.DragEvent) => e.preventDefault();
   const onDrop: React.DragEventHandler<HTMLLabelElement> = (e) => {
     e.preventDefault();
-    onSelectFile(e.dataTransfer.files);
+    pickFile(e.dataTransfer.files);
   };
 
   const mb = (n: number) => (n / (1024 * 1024)).toFixed(2);
 
   const onSubmit = async (v: FormValues) => {
+    setServerError("");
+
+    if (!file) {
+      setFileError("Please upload a PDF");
+      return;
+    }
+
+    // Keys must match DRF: national_id, display_label, issued_on, serial_number, file
     const fd = new FormData();
     fd.append("national_id", v.nationalId);
-    fd.append("full_name", v.fullName);
-    fd.append("title", v.title);
-    fd.append("issue_date", v.issueDate);
+    fd.append("display_label", v.title);
+    fd.append("issued_on", v.issueDate);
     fd.append("serial_number", v.serialNumber);
-    fd.append("file", v.file[0]);
+    fd.append("file", file);
 
     try {
-      const res = await fetch("/institutions/certificates/", {
-        method: "POST",
-        body: fd,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(await res.text().catch(() => "Upload failed"));
+      const res = await api<any>("/certificates/issue/", { method: "POST", body: fd });
 
       clearFile();
-      setValue("nationalId", "" as any);
-      setValue("fullName", "" as any);
-      setValue("title", "" as any);
-      setValue("issueDate", "" as any);
-      setValue("serialNumber", "" as any);
-
-      navigate("/institution/upload/success/" + v.nationalId);
-    } catch (e) {
-      console.error(e);
-      setFileError("Upload failed. Please try again.");
+      navigate(`/institution/upload/success/${encodeURIComponent(v.nationalId)}`, {
+        state: {
+          id: res?.id,
+          txHash: res?.tx_hash,
+          blockNumber: res?.block_number,
+          cid: res?.cid_enc ?? res?.cid,
+        },
+      });
+    } catch (err: any) {
+      const msg =
+        err?.userMessage ||
+        err?.message ||
+        err?.response?.data?.user_message ||
+        "Upload failed.";
+      setFileError("");       // prefer showing unified serverError
+      setServerError(msg);
     }
   };
 
   return (
     <section className="auth-hero">
       <div className="auth-wrap">
-        {/* Title styled like “Issued Certificates” */}
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
           Upload New{" "}
           <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
             Certificate
           </span>
         </h1>
-        <p className="mt-2 text-gray-600">
-          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-            Certificate
-          </span>{" "}
-          Details
-        </p>
+        <p className="mt-2 text-gray-600">Certificate Details</p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting}>
+        <form onSubmit={handleSubmit(onSubmit)} className="auth-card" aria-busy={isSubmitting} noValidate>
           <div className="auth-grid">
-            {/* LEFT column */}
+            {/* LEFT */}
             <div className="space-y-4">
               <div>
                 <label htmlFor="nationalId" className="form-label">National ID</label>
@@ -166,70 +162,37 @@ export default function UploadCertificate() {
                   type="text"
                   className="form-input"
                   placeholder="1233211234"
-                  aria-invalid={!!errors.nationalId}
-                  aria-describedby="nationalId-error"
                   {...register("nationalId")}
                 />
-                {errors.nationalId && <p className="form-error" id="nationalId-error">{errors.nationalId.message}</p>}
+                {errors.nationalId && <p className="form-error">{errors.nationalId.message}</p>}
               </div>
 
               <div>
                 <label htmlFor="fullName" className="form-label">Full Name</label>
-                <input
-                  id="fullName"
-                  type="text"
-                  className="form-input"
-                  placeholder="Lara Saad Alharbi"
-                  aria-invalid={!!errors.fullName}
-                  aria-describedby="fullName-error"
-                  {...register("fullName")}
-                />
-                {errors.fullName && <p className="form-error" id="fullName-error">{errors.fullName.message}</p>}
+                <input id="fullName" type="text" className="form-input" {...register("fullName")} />
+                {errors.fullName && <p className="form-error">{errors.fullName.message}</p>}
               </div>
 
               <div>
                 <label htmlFor="title" className="form-label">Certificate Title</label>
-                <input
-                  id="title"
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g., STC"
-                  aria-invalid={!!errors.title}
-                  aria-describedby="title-error"
-                  {...register("title")}
-                />
-                {errors.title && <p className="form-error" id="title-error">{errors.title.message}</p>}
+                <input id="title" type="text" className="form-input" {...register("title")} />
+                {errors.title && <p className="form-error">{errors.title.message}</p>}
               </div>
 
               <div>
                 <label htmlFor="issueDate" className="form-label">Issue Date</label>
-                <input
-                  id="issueDate"
-                  type="date"
-                  className="form-input"
-                  aria-invalid={!!errors.issueDate}
-                  aria-describedby="issueDate-error"
-                  {...register("issueDate")}
-                />
-                {errors.issueDate && <p className="form-error" id="issueDate-error">{errors.issueDate.message}</p>}
+                <input id="issueDate" type="date" className="form-input" {...register("issueDate")} />
+                {errors.issueDate && <p className="form-error">{errors.issueDate.message}</p>}
               </div>
 
               <div>
                 <label htmlFor="serialNumber" className="form-label">Serial Number</label>
-                <input
-                  id="serialNumber"
-                  type="text"
-                  className="form-input"
-                  placeholder="Enter serial number"
-                  aria-invalid={!!errors.serialNumber}
-                  aria-describedby="serialNumber-error"
-                  {...register("serialNumber")}
-                />
-                {errors.serialNumber && <p className="form-error" id="serialNumber-error">{errors.serialNumber.message}</p>}
+                <input id="serialNumber" type="text" className="form-input" {...register("serialNumber")} />
+                {errors.serialNumber && <p className="form-error">{errors.serialNumber.message}</p>}
               </div>
             </div>
 
-            {/* RIGHT column */}
+            {/* RIGHT */}
             <div className="space-y-4">
               <div>
                 <label htmlFor="file" className="form-label block">Upload Certificate</label>
@@ -241,6 +204,7 @@ export default function UploadCertificate() {
                   onDragOver={prevent}
                   onDragLeave={prevent}
                   onDrop={onDrop}
+                  onClick={() => fileInputRef.current?.click()}
                 >
                   <UploadIllustration />
                   <div className="font-medium">Upload Certificate</div>
@@ -249,31 +213,26 @@ export default function UploadCertificate() {
 
                 <input
                   id="file"
+                  ref={fileInputRef}
                   type="file"
                   accept=".pdf,application/pdf"
-                  multiple={false}
-                  ref={fileInputRef}
                   style={{ display: "none" }}
-                  {...register("file")}
-                  onClick={(e) => { (e.currentTarget as HTMLInputElement).value = ""; }}
-                  onChange={(e) => onSelectFile(e.target.files)}
+                  onChange={(e) => pickFile(e.target.files)}
                 />
 
                 {uploadName && (
                   <div className="mt-3 text-sm">
                     <span className="badge badge-success">Selected</span> {uploadName}
-                    <span className="ml-2 text-muted">
-                      {getValues("file")?.[0] ? ` (${mb(getValues("file")[0].size)} MB)` : null}
-                    </span>
+                    <span className="ml-2 text-muted">{file ? ` (${mb(file.size)} MB)` : null}</span>
                     <button type="button" className="btn btn-ghost btn-xs ml-3" onClick={clearFile}>
                       Remove
                     </button>
                   </div>
                 )}
 
-                {(fileError || errors.file) && (
+                {(fileError || serverError) && (
                   <p className="form-error" aria-live="polite">
-                    {fileError || String(errors.file?.message)}
+                    {fileError || serverError}
                   </p>
                 )}
               </div>

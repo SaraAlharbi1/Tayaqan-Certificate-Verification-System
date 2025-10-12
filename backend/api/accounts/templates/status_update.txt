@@ -1,0 +1,11 @@
+Dear {{ name }},
+
+Your {{ kind }} registration has been {{ status }}.
+{% if notes %}
+
+Notes from admin:
+{{ notes }}
+{% endif %}
+
+You can log in to review next steps:
+{{ dashboard_url }}

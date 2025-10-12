@@ -27,5 +27,5 @@ export function getAuthToken(): string | null {
 
 /** Fetch current user profile */
 export async function me(): Promise<MeResponse> {
-  return api<MeResponse>("/me/");
+  return api<MeResponse>("/auth/me/");
 }

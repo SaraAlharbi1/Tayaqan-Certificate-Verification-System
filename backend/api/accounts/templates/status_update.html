@@ -1,0 +1,8 @@
+<p>Dear {{ name }},</p>
+<p>Your <strong>{{ kind }}</strong> registration has been <strong>{{ status }}</strong>.</p>
+{% if notes %}
+  <p><em>Notes from admin:</em><br>{{ notes|linebreaksbr }}</p>
+{% endif %}
+<p>You can log in to review next steps:<br>
+  <a href="{{ dashboard_url }}">{{ dashboard_url }}</a>
+</p>

@@ -32,12 +32,14 @@ import ApplicantHome from "./Pages/ApplicantRole/ApplicantHome";
 import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
 import AccessRequestsApplicant from "./Pages/ApplicantRole/AccessRequests";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
+import MyApplicantCertificateDetails from "./Pages/ApplicantRole/MyApplicantCertificateDetails"; // <-- ADD
 
 /* ---------- Institution role ---------- */
 import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
 import UploadSuccess from "./Pages/InstitutionRole/UploadSuccess";
 import InstitutionHome from "./Pages/InstitutionRole/InstitutionHome";
 import IssuedCertificates from "./Pages/InstitutionRole/IssuedCertificates";
+import InstitutionCertificateDetails from "./Pages/InstitutionRole/InstitutionCertificateDetails";
 
 /* ---------- Role-based guard ---------- */
 function RoleRoute({
@@ -92,6 +94,16 @@ export default function App() {
             <ProtectedRoute>
               <RoleRoute allow={["applicant"]}>
                 <MyCertificatesPage />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/applicant/certificates/:id" // <-- ADD
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["applicant"]}>
+                <MyApplicantCertificateDetails />
               </RoleRoute>
             </ProtectedRoute>
           }
@@ -206,6 +218,16 @@ export default function App() {
             <ProtectedRoute>
               <RoleRoute allow={["institution"]}>
                 <IssuedCertificates />
+              </RoleRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/institution/certificates/:id"
+          element={
+            <ProtectedRoute>
+              <RoleRoute allow={["institution"]}>
+                <InstitutionCertificateDetails />
               </RoleRoute>
             </ProtectedRoute>
           }

@@ -1,16 +1,19 @@
 """
-HTTP endpoints for Accounts.
+HTTP endpoints for Accounts (router + ViewSets, no APIView).
 """
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.response import Response
+
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework import status
+from rest_framework.response import Response
+
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.openapi import OpenApiTypes
-from rest_framework_simplejwt.views import TokenRefreshView as _TokenRefreshView
+
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
 from .models import User, Employer, Institution
 from .serializers import (
@@ -25,36 +28,56 @@ from .serializers import (
 )
 
 
-class LoginView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
+# ---------- Auth ----------
+@extend_schema_view(
+    login=extend_schema(
         tags=["Accounts"],
         summary="User Login",
         description="Authenticate with email or national ID and password to receive JWT tokens.",
         request=LoginSerializer,
         responses={200: LoginSerializer},
-    )
-    def post(self, request):
+    ),
+    refresh=extend_schema(
+        tags=["Accounts"],
+        summary="Refresh JWT",
+        request=TokenRefreshSerializer,
+        responses={200: TokenRefreshSerializer},
+    ),
+    me=extend_schema(
+        tags=["Accounts"],
+        summary="Get Current User Profile",
+        responses={200: MeSerializer, 401: {"description": "Authentication required"}},
+    ),
+)
+class AuthViewSet(viewsets.GenericViewSet):
+    """
+    Routes:
+      POST /api/auth/login/
+      POST /api/auth/refresh/
+      GET  /api/auth/me/
+    """
+    queryset = User.objects.none()  # not used, but required by GenericViewSet
+
+    permission_classes = [AllowAny]
+
+    @action(methods=["post"], detail=False, url_path="login", permission_classes=[AllowAny])
+    def login(self, request):
         ser = LoginSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         return Response(ser.validated_data, status=status.HTTP_200_OK)
 
+    @action(methods=["post"], detail=False, url_path="refresh", permission_classes=[AllowAny])
+    def refresh(self, request):
+        ser = TokenRefreshSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        return Response(ser.validated_data, status=status.HTTP_200_OK)
 
-class MeView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        tags=["Accounts"],
-        summary="Get Current User Profile",
-        responses={200: MeSerializer, 401: {"description": "Authentication required"}},
-    )
-    def get(self, request):
+    @action(methods=["get"], detail=False, url_path="me", permission_classes=[IsAuthenticated])
+    def me(self, request):
         user: User = request.user
         profile = {}
         status_text = None
 
-        # Applicant fields
         if user.role == User.Roles.APPLICANT and hasattr(user, "applicant"):
             a = user.applicant
             profile = {
@@ -62,8 +85,6 @@ class MeView(APIView):
                 "national_id": a.national_id_plain,
                 "phone": a.phone,
             }
-
-        # Employer fields
         elif user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
             e = user.employer
             profile = {
@@ -72,8 +93,6 @@ class MeView(APIView):
                 "cr_number": e.cr_number_plain,
             }
             status_text = e.status
-
-        # Institution fields (add phone/official_email so frontend can show them)
         elif user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
             i: Institution = user.institution
             profile = {
@@ -96,60 +115,72 @@ class MeView(APIView):
         return Response(MeSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-class ApplicantSignupView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
+# ---------- Signup ----------
+@extend_schema_view(
+    applicant=extend_schema(
         tags=["Accounts"],
         summary="Create Applicant Account",
         request=ApplicantSignupSerializer,
         responses={201: {"description": "Created"}},
-    )
-    def post(self, request):
+    ),
+    employer=extend_schema(
+        tags=["Accounts"],
+        summary="Create Employer Account",
+        request=EmployerSignupSerializer,
+        responses={201: {"description": "Submitted"}},
+    ),
+    institution=extend_schema(
+        tags=["Accounts"],
+        summary="Create Institution Account",
+        request=InstitutionSignupSerializer,
+        responses={201: {"description": "Submitted"}},
+    ),
+)
+class SignupViewSet(viewsets.GenericViewSet):
+    """
+    Routes:
+      POST /api/signup/applicant/
+      POST /api/signup/employer/
+      POST /api/signup/institution/
+    """
+    queryset = User.objects.none()
+    permission_classes = [AllowAny]
+
+    @action(methods=["post"], detail=False, url_path="applicant")
+    def applicant(self, request):
         ser = ApplicantSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
         return Response({"message": "Applicant created. You can sign in now."}, status=status.HTTP_201_CREATED)
 
-
-class EmployerSignupView(APIView):
-    permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser, FormParser]
-
-    @extend_schema(
-        tags=["Accounts"],
-        summary="Create Employer Account",
-        request=EmployerSignupSerializer,
-        responses={201: {"description": "Submitted"}},
+    @action(
+        methods=["post"],
+        detail=False,
+        url_path="employer",
+        parser_classes=[MultiPartParser, FormParser],
     )
-    def post(self, request):
+    def employer(self, request):
         ser = EmployerSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
         return Response({"message": "Employer submitted. Await approval.", "status": "PENDING"}, status=201)
 
-
-class InstitutionSignupView(APIView):
-    permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser, FormParser]
-
-    @extend_schema(
-        tags=["Accounts"],
-        summary="Create Institution Account",
-        request=InstitutionSignupSerializer,
-        responses={201: {"description": "Submitted"}},
+    @action(
+        methods=["post"],
+        detail=False,
+        url_path="institution",
+        parser_classes=[MultiPartParser, FormParser],
     )
-    def post(self, request):
+    def institution(self, request):
         ser = InstitutionSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
         return Response({"message": "Institution submitted. Await approval.", "status": "PENDING"}, status=201)
 
 
-class AdminPendingList(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    @extend_schema(
+# ---------- Admin moderation ----------
+@extend_schema_view(
+    pending=extend_schema(
         tags=["Accounts"],
         summary="List Pending Accounts",
         parameters=[
@@ -161,8 +192,24 @@ class AdminPendingList(APIView):
                 description="Filter by role",
             )
         ],
-    )
-    def get(self, request):
+    ),
+    status=extend_schema(
+        tags=["Accounts"],
+        summary="Update Account Status",
+        request=AdminStatusUpdateSerializer,
+    ),
+)
+class AdminAccountsViewSet(viewsets.GenericViewSet):
+    """
+    Routes:
+      GET   /api/admin/accounts/pending/?role=employer|institution
+      PATCH /api/admin/accounts/{user_id}/status/
+    """
+    queryset = User.objects.all()
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    @action(methods=["get"], detail=False, url_path="pending")
+    def pending(self, request):
         role = request.query_params.get("role")
         if role == "employer":
             data = [
@@ -178,22 +225,14 @@ class AdminPendingList(APIView):
             return Response({"results": data}, status=200)
         return Response({"results": []}, status=200)
 
-
-class AdminUpdateStatus(APIView):
-    permission_classes = [IsAuthenticated, IsAdminUser]
-
-    @extend_schema(
-        tags=["Accounts"],
-        summary="Update Account Status",
-        request=AdminStatusUpdateSerializer,
-    )
-    def patch(self, request, user_id: int):
+    @action(methods=["patch"], detail=True, url_path="status")
+    def status(self, request, pk=None):
         ser = AdminStatusUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         status_choice = ser.validated_data["status"]
         notes = ser.validated_data.get("notes", "")
 
-        user = get_object_or_404(User, id=user_id)
+        user = get_object_or_404(User, id=pk)
 
         if user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
             e = user.employer
@@ -212,36 +251,37 @@ class AdminUpdateStatus(APIView):
         return Response({"message": "No moderatable profile for this user."}, status=400)
 
 
-class PasswordResetRequestView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
+# ---------- Password reset ----------
+@extend_schema_view(
+    request_link=extend_schema(
         tags=["Accounts"],
         summary="Request Password Reset",
         request=PasswordResetRequestSerializer,
-    )
-    def post(self, request):
+    ),
+    confirm=extend_schema(
+        tags=["Accounts"],
+        summary="Confirm Password Reset",
+        request=PasswordResetConfirmSerializer,
+    ),
+)
+class PasswordViewSet(viewsets.GenericViewSet):
+    """
+    Routes:
+      POST /api/password/request/
+      POST /api/password/confirm/
+    """
+    queryset = User.objects.none()
+
+    @action(methods=["post"], detail=False, url_path="request", permission_classes=[AllowAny])
+    def request_link(self, request):
         ser = PasswordResetRequestSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.save(frontend_base=getattr(settings, "FRONTEND_RESET_URL", "http://localhost:5173/reset-password"))
         return Response({"detail": "If the email exists, a reset link was sent."}, status=200)
 
-
-class PasswordResetConfirmView(APIView):
-    permission_classes = [AllowAny]
-
-    @extend_schema(
-        tags=["Accounts"],
-        summary="Confirm Password Reset",
-        request=PasswordResetConfirmSerializer,
-    )
-    def post(self, request):
+    @action(methods=["post"], detail=False, url_path="confirm", permission_classes=[AllowAny])
+    def confirm(self, request):
         ser = PasswordResetConfirmSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.save()
         return Response({"detail": "Password has been reset."}, status=200)
-
-
-@extend_schema_view(post=extend_schema(tags=["Accounts"], summary="Refresh JWT"))
-class TokenRefreshView(_TokenRefreshView):
-    pass
