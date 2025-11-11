@@ -136,8 +136,9 @@ class CertificatePagination(PageNumberPagination):
 
 @extend_schema_view(
     list=extend_schema(
-        tags=["Certificates"],
-        summary="List certificates for the current institution",
+        tags=["2. Certificates"],
+        summary="01. List certificates for the current institution",
+        operation_id="02_certificates_list",
         parameters=[
             OpenApiParameter(name="search", type=OpenApiTypes.STR, required=False),
             OpenApiParameter(name="ordering", type=OpenApiTypes.STR, required=False),
@@ -146,8 +147,9 @@ class CertificatePagination(PageNumberPagination):
         responses={200: CertificateListSerializer(many=True)},
     ),
     retrieve=extend_schema(
-        tags=["Certificates"],
-        summary="Get certificate details (institution-scoped)",
+        tags=["2. Certificates"],
+        summary="02. Get certificate details (institution-scoped)",
+        operation_id="02_certificates_retrieve",
         responses={200: CertificateDetailSerializer, 404: {"description": "Not found"}},
     ),
 )
@@ -213,8 +215,9 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
 
     # ---- POST /verify-batch ----
     @extend_schema(
-        tags=["Certificates"],
-        summary="Batch verify (by file_hash) on blockchain",
+        tags=["2. Certificates"],
+        summary="03. Batch verify (by file_hash) on blockchain",
+        operation_id="02_certificates_verify_batch",
         request={"application/json": {
             "type": "object",
             "properties": {"file_hashes": {"type": "array", "items": {"type": "string"}}},
@@ -240,7 +243,12 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
         return Response(out, status=200)
 
     # ---- GET /{id}/tx-info ----
-    @extend_schema(tags=["Certificates"], summary="Tx info (Issued/Revoked)", responses={200: {"type": "object"}})
+    @extend_schema(
+        tags=["2. Certificates"],
+        summary="04. Tx info (Issued/Revoked)",
+        operation_id="02_certificates_tx_info",
+        responses={200: {"type": "object"}},
+    )
     @action(methods=["get"], detail=True, url_path="tx-info", permission_classes=[IsAuthenticated])
     def tx_info(self, request, pk=None):
         inst = _resolve_institution(self.request.user)
@@ -250,8 +258,9 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
 
     # ---- GET /{id}/file ----
     @extend_schema(
-        tags=["Certificates"],
-        summary="Download (inline) the decrypted PDF",
+        tags=["2. Certificates"],
+        summary="05. Download (inline) the decrypted PDF",
+        operation_id="02_certificates_file",
         responses={200: {"content": {"application/pdf": {}}}, 404: {"description": "Not found"}},
     )
     @action(methods=["get"], detail=True, url_path="file", permission_classes=[IsAuthenticated])
@@ -280,8 +289,9 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
 
     # ---- POST /issue ----
     @extend_schema(
-        tags=["Certificates"],
-        summary="Issue a certificate (on-chain → encrypt → upload → save)",
+        tags=["2. Certificates"],
+        summary="06. Issue a certificate (on-chain → encrypt → upload → save)",
+        operation_id="02_certificates_issue",
         request={
             "multipart/form-data": {
                 "type": "object",
@@ -409,7 +419,12 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
         return Response(data, status=200)
 
     # ---- POST /{id}/revoke ----
-    @extend_schema(tags=["Certificates"], summary="Revoke on-chain", responses={200: {"type": "object"}})
+    @extend_schema(
+        tags=["2. Certificates"],
+        summary="07. Revoke on-chain",
+        operation_id="02_certificates_revoke",
+        responses={200: {"type": "object"}},
+    )
     @action(methods=["post"], detail=True, url_path="revoke", permission_classes=[IsAuthenticated])
     def revoke(self, request, pk=None):
         inst = _resolve_institution(self.request.user)
@@ -442,8 +457,9 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
 
 @extend_schema_view(
     list=extend_schema(
-        tags=["My Certificates"],
-        summary="List certificates owned by the current applicant",
+        tags=["4. My Certificates"],
+        summary="01. List certificates owned by the current applicant",
+        operation_id="04_mycerts_list",
         parameters=[
             OpenApiParameter(name="search", type=OpenApiTypes.STR, required=False),
             OpenApiParameter(name="ordering", type=OpenApiTypes.STR, required=False),
@@ -452,8 +468,9 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
         responses={200: CertificateListSerializer(many=True)},
     ),
     retrieve=extend_schema(
-        tags=["My Certificates"],
-        summary="My certificate details (with on-chain status + tx info)",
+        tags=["4. My Certificates"],
+        summary="02. My certificate details (with on-chain status + tx info)",
+        operation_id="04_mycerts_retrieve",
         responses={200: {"type": "object"}, 404: {"description": "Not found"}},
     ),
 )
@@ -492,8 +509,9 @@ class MyCertificatesViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
 
     # ---- POST /verify-batch ----
     @extend_schema(
-        tags=["My Certificates"],
-        summary="Batch verify my certificates",
+        tags=["4. My Certificates"],
+        summary="03. Batch verify my certificates",
+        operation_id="04_mycerts_verify_batch",
         request={"application/json": {
             "type": "object",
             "properties": {"file_hashes": {"type": "array", "items": {"type": "string"}}},
@@ -547,8 +565,12 @@ class MyCertificatesViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
         }, status=200)
 
     # ---- GET /{id}/file ----
-    @extend_schema(tags=["My Certificates"], summary="Open my decrypted PDF (inline)",
-                   responses={200: {"content": {"application/pdf": {}}}, 410: {}, 404: {}})
+    @extend_schema(
+        tags=["4. My Certificates"],
+        summary="04. Open my decrypted PDF (inline)",
+        operation_id="04_mycerts_file",
+        responses={200: {"content": {"application/pdf": {}}}, 410: {}, 404: {}},
+    )
     @action(methods=["get"], detail=True, url_path="file", permission_classes=[IsAuthenticated])
     def file(self, request, pk=None):
         applicant = _resolve_applicant(request.user)
@@ -583,8 +605,9 @@ class MyCertificatesViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
 
 @extend_schema_view(
     retrieve=extend_schema(
-        tags=["Employer Certificates"],
-        summary="Get certificate details (GLOBAL view)",
+        tags=["5. Employer Certificates"],
+        summary="01. Get certificate details (GLOBAL view)",
+        operation_id="05_employer_certs_retrieve",
         responses={200: CertificateDetailSerializer, 404: {"description": "Not found"}},
     ),
 )
@@ -617,7 +640,12 @@ class EmployerCertificatesViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         })
         return Response(data, status=200)
 
-    @extend_schema(tags=["Employer Certificates"], summary="Tx info", responses={200: {"type": "object"}})
+    @extend_schema(
+        tags=["5. Employer Certificates"],
+        summary="02. Tx info",
+        operation_id="05_employer_certs_tx_info",
+        responses={200: {"type": "object"}},
+    )
     @action(methods=["get"], detail=True, url_path="tx-info", permission_classes=[IsAuthenticated])
     def tx_info(self, request, pk=None):
         cert = get_object_or_404(self.get_queryset(), pk=pk)
@@ -625,8 +653,9 @@ class EmployerCertificatesViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         return Response(info, status=200)
 
     @extend_schema(
-        tags=["Employer Certificates"],
-        summary="Download decrypted PDF (inline)",
+        tags=["5. Employer Certificates"],
+        summary="03. Download decrypted PDF (inline)",
+        operation_id="05_employer_certs_file",
         responses={200: {"content": {"application/pdf": {}}}, 404: {"description": "Not found"}},
     )
     @action(methods=["get"], detail=True, url_path="file", permission_classes=[IsAuthenticated])
@@ -650,3 +679,4 @@ class EmployerCertificatesViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'inline; filename="certificate_{cert.id}.pdf"'
         return resp
+

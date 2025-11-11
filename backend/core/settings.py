@@ -1,3 +1,4 @@
+# backend/core/settings.py
 """
 Django settings for backend project (dev).
 """
@@ -36,7 +37,6 @@ INSTALLED_APPS = [
     "api.accounts",
     "api.certificates",
     "api.access",
-
 ]
 
 MIDDLEWARE = [
@@ -106,19 +106,16 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    # Filtering/search/ordering defaults (your views also set these explicitly)
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    # Pagination: keep 10 to match your UI
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 10,
 }
 
-
-# ------------------------------------------------------------------ Spectacular
+# ------------------------------------------------------------------ Spectacular (Swagger / OpenAPI)
 SPECTACULAR_SETTINGS = {
     "TITLE": "Tayaqan API",
     "VERSION": "1.0.0",
@@ -128,6 +125,20 @@ SPECTACULAR_SETTINGS = {
             "JWTAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
         }
     },
+    # Order tags & operations using numeric prefixes you added in views
+    "SWAGGER_UI_SETTINGS": {
+        "tagsSorter": "alpha",
+        "operationsSorter": "alpha",
+        "displayOperationId": True,
+    },
+    # Nice descriptions in the same visible order
+    "TAGS": [
+        {"name": "1. Accounts", "description": "Auth, signup, admin moderation, password reset."},
+        {"name": "2. Certificates", "description": "Institution issue/revoke, files, tx info."},
+        {"name": "3. Access", "description": "Employer requests, applicant approve/reject, shared certificates."},
+        {"name": "4. My Certificates", "description": "Applicant views and verifies own certificates."},
+        {"name": "5. Employer Certificates", "description": "Employer views shared/global certificates."},
+    ],
 }
 
 # ------------------------------------------------------------------ JWT
@@ -144,12 +155,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 CORS_ALLOW_CREDENTIALS = False
-
-# If you’re doing POSTs from the Vite dev server and hit CSRF issues on session auth,
-# add CSRF_TRUSTED_ORIGINS; for JWT-only it’s typically not needed.
 # CSRF_TRUSTED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-# ------------------------------------------------------------------ Email (env-driven; avoid hardcoding)
+# ------------------------------------------------------------------ Email (env-driven)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
@@ -157,3 +165,4 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+

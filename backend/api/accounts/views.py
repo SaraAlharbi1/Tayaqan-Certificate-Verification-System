@@ -33,22 +33,25 @@ from .serializers import (
 # ---------- Auth ----------
 @extend_schema_view(
     login=extend_schema(
-        tags=["Accounts"],
-        summary="User Login",
+        tags=["1. Accounts"],
+        summary="01. User Login",
         description="Authenticate with email or national ID and password to receive JWT tokens.",
         request=LoginSerializer,
         responses={200: LoginSerializer},
+        operation_id="01_accounts_login",
     ),
     refresh=extend_schema(
-        tags=["Accounts"],
-        summary="Refresh JWT",
+        tags=["1. Accounts"],
+        summary="02. Refresh JWT",
         request=TokenRefreshSerializer,
         responses={200: TokenRefreshSerializer},
+        operation_id="02_accounts_refresh",
     ),
     me=extend_schema(
-        tags=["Accounts"],
-        summary="Get Current User Profile",
+        tags=["1. Accounts"],
+        summary="03. Get Current User Profile",
         responses={200: MeSerializer, 401: {"description": "Authentication required"}},
+        operation_id="03_accounts_me",
     ),
 )
 class AuthViewSet(viewsets.GenericViewSet):
@@ -106,22 +109,25 @@ class AuthViewSet(viewsets.GenericViewSet):
 # ---------- Signup ----------
 @extend_schema_view(
     applicant=extend_schema(
-        tags=["Accounts"],
-        summary="Create Applicant Account",
+        tags=["1. Accounts"],
+        summary="04. Create Applicant Account",
         request=ApplicantSignupSerializer,
         responses={201: {"description": "Created"}},
+        operation_id="04_accounts_signup_applicant",
     ),
     employer=extend_schema(
-        tags=["Accounts"],
-        summary="Create Employer Account",
+        tags=["1. Accounts"],
+        summary="05. Create Employer Account",
         request=EmployerSignupSerializer,
         responses={201: {"description": "Submitted"}},
+        operation_id="05_accounts_signup_employer",
     ),
     institution=extend_schema(
-        tags=["Accounts"],
-        summary="Create Institution Account",
+        tags=["1. Accounts"],
+        summary="06. Create Institution Account",
         request=InstitutionSignupSerializer,
         responses={201: {"description": "Submitted"}},
+        operation_id="06_accounts_signup_institution",
     ),
 )
 class SignupViewSet(viewsets.GenericViewSet):
@@ -154,8 +160,8 @@ class SignupViewSet(viewsets.GenericViewSet):
 # ---------- Admin moderation ----------
 @extend_schema_view(
     pending=extend_schema(
-        tags=["Accounts"],
-        summary="List Pending Accounts",
+        tags=["1. Accounts"],
+        summary="07. List Pending Accounts",
         parameters=[
             OpenApiParameter(
                 name="role",
@@ -165,11 +171,13 @@ class SignupViewSet(viewsets.GenericViewSet):
                 description="Filter by role",
             )
         ],
+        operation_id="07_accounts_pending",
     ),
     status=extend_schema(
-        tags=["Accounts"],
-        summary="Update Account Status",
+        tags=["1. Accounts"],
+        summary="08. Update Account Status",
         request=AdminStatusUpdateSerializer,
+        operation_id="08_accounts_update_status",
     ),
 )
 class AdminAccountsViewSet(viewsets.GenericViewSet):
@@ -251,8 +259,18 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
 
 # ---------- Password reset ----------
 @extend_schema_view(
-    request_link=extend_schema(tags=["Accounts"], summary="Request Password Reset", request=PasswordResetRequestSerializer),
-    confirm=extend_schema(tags=["Accounts"], summary="Confirm Password Reset", request=PasswordResetConfirmSerializer),
+    request_link=extend_schema(
+        tags=["1. Accounts"],
+        summary="09. Request Password Reset",
+        request=PasswordResetRequestSerializer,
+        operation_id="09_accounts_password_request",
+    ),
+    confirm=extend_schema(
+        tags=["1. Accounts"],
+        summary="10. Confirm Password Reset",
+        request=PasswordResetConfirmSerializer,
+        operation_id="10_accounts_password_confirm",
+    ),
 )
 class PasswordViewSet(viewsets.GenericViewSet):
     """Routes: POST /password/request, POST /password/confirm."""

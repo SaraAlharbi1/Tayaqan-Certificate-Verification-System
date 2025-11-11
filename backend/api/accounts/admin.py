@@ -1,8 +1,9 @@
+# backend/api/accounts/admin.py
 from django import forms
 from django.db import models
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.utils.html import format_html
+from django.utils.html import format_html, strip_tags
 from django.core.mail import send_mail
 from django.conf import settings
 from django.template.loader import render_to_string
@@ -15,7 +16,7 @@ class UserAdmin(DjangoUserAdmin):
     model = User
     ordering = ("id",)
     list_display = ("email", "role", "is_active", "is_staff", "last_login")
-    list_filter  = ("role", "is_active", "is_staff")
+    list_filter = ("role", "is_active", "is_staff")
     search_fields = ("email",)
     exclude = ("username", "first_name", "last_name")
     fieldsets = (
@@ -24,15 +25,25 @@ class UserAdmin(DjangoUserAdmin):
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login", "date_joined")}),
     )
-    add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email","password1","password2","role","is_active","is_staff","is_superuser")}),)
+    add_fieldsets = (
+        (None, {
+            "classes": ("wide",),
+            "fields": ("email", "password1", "password2", "role", "is_active", "is_staff", "is_superuser"),
+        }),
+    )
 
-# helper
+# helpers
 def _proof_link(filefield):
     if filefield and getattr(filefield, "url", None):
         return format_html('<a href="{}" target="_blank">Download PDF</a>', filefield.url)
     return "—"
 
 def _notify_status_change(kind, obj, to_email):
+    """Send status change email using the existing template at:
+       backend/api/accounts/templates/Registration_update.html
+    """
+    if not to_email:
+        return
     ctx = {
         "kind": kind,  # "institution" | "employer"
         "name": getattr(obj, "institution_name", None) or getattr(obj, "full_name", ""),
@@ -40,8 +51,9 @@ def _notify_status_change(kind, obj, to_email):
         "notes": (obj.status_notes or "").strip(),
         "dashboard_url": "http://localhost:5173/login",
     }
-    text_body = render_to_string("status_update.txt", ctx)
-    html_body = render_to_string("status_update.html", ctx)
+    # Use the single HTML template you have; derive text from it.
+    html_body = render_to_string("Registration_update.html", ctx)
+    text_body = strip_tags(html_body)
     send_mail(
         subject="Tayaqan Registration Status Updated",
         message=text_body,
@@ -60,8 +72,10 @@ class ApplicantAdmin(admin.ModelAdmin):
 # ---- Employers (signup fields) ----
 @admin.register(Employer)
 class EmployerAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "full_name", "company_name", "cr_number_plain",
-                    "work_email", "phone", "status", "status_notes", "proof_link")
+    list_display = (
+        "id", "user", "full_name", "company_name", "cr_number_plain",
+        "work_email", "phone", "status", "status_notes", "proof_link",
+    )
     list_display_links = ("id", "user")
     list_editable = ("status", "status_notes")
     list_filter = ("status",)
@@ -85,8 +99,10 @@ class EmployerAdmin(admin.ModelAdmin):
 # ---- Institutions (signup fields) ----
 @admin.register(Institution)
 class InstitutionAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "institution_name", "official_email", "department",
-                    "phone", "status", "status_notes", "proof_link")
+    list_display = (
+        "id", "user", "institution_name", "official_email", "department",
+        "phone", "status", "status_notes", "proof_link",
+    )
     list_display_links = ("id", "user")
     list_editable = ("status", "status_notes")
     list_filter = ("status",)

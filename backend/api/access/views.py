@@ -3,7 +3,7 @@
 Access flows.
 - Employer: create/list own requests; verify applicant exists; see shared certs.
 - Applicant: list incoming; approve/reject with on-chain check; list candidate certs.
-- Employer certificates: fetch only APPROVED shares; decrypt & stream PDF if on-chain ACTIVE.
+- Employer certificates (shared): fetch only APPROVED shares; decrypt & stream PDF if on-chain ACTIVE.
 """
 import os
 import sys
@@ -25,6 +25,9 @@ from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.openapi import OpenApiTypes
 
 from Crypto.Cipher import AES
 
@@ -220,6 +223,27 @@ class IsApplicant(BasePermission):
 
 # ───────────── Employer ViewSet ─────────────
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["3. Access"],
+        summary="01. Employer: List my access requests",
+        operation_id="03_access_employer_requests_list",
+        responses={200: AccessRequestSerializer(many=True)},
+    ),
+    create=extend_schema(
+        tags=["3. Access"],
+        summary="02. Employer: Create access request",
+        operation_id="03_access_employer_requests_create",
+        request=AccessRequestCreateSerializer,
+        responses={201: AccessRequestSerializer},
+    ),
+    retrieve=extend_schema(
+        tags=["3. Access"],
+        summary="03. Employer: Get a request",
+        operation_id="03_access_employer_requests_retrieve",
+        responses={200: AccessRequestSerializer, 404: {"description": "Not found"}},
+    ),
+)
 class EmployerAccessRequestViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
@@ -264,12 +288,25 @@ class EmployerAccessRequestViewSet(
                 return Response({"code": "duplicate_pending", "user_message": "A pending request already exists for this applicant."}, status=400)
             raise
 
+    @extend_schema(
+        tags=["3. Access"],
+        summary="04. Employer: Verify applicant by national ID",
+        operation_id="03_access_employer_verify_applicant",
+        parameters=[OpenApiParameter(name="national_id", location=OpenApiParameter.PATH, type=OpenApiTypes.STR)],
+        responses={200: {"type": "object"}, 404: {"description": "Applicant not found"}},
+    )
     @action(detail=False, methods=["get"], url_path=r"verify-applicant/(?P<national_id>[0-9]{10})")
     def verify_applicant(self, request, national_id=None):
         from api.accounts.models import Applicant
         exists = Applicant.objects.filter(national_id_plain=national_id).exists()
         return Response({"exists": bool(exists)}, status=(200 if exists else 404))
 
+    @extend_schema(
+        tags=["3. Access"],
+        summary="05. Employer: List ACTIVE shared certificates for a request",
+        operation_id="03_access_employer_request_shared",
+        responses={200: {"type": "object"}},
+    )
     @action(detail=True, methods=["get"])
     def shared(self, request, pk=None):
         """List ACTIVE shared certs for this APPROVED request (single if 1, else batch)."""
@@ -311,6 +348,20 @@ class EmployerAccessRequestViewSet(
 
 # ───────────── Applicant ViewSet ─────────────
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["3. Access"],
+        summary="06. Applicant: List incoming access requests",
+        operation_id="03_access_my_requests_list",
+        responses={200: AccessRequestSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["3. Access"],
+        summary="07. Applicant: Get a request",
+        operation_id="03_access_my_requests_retrieve",
+        responses={200: AccessRequestSerializer, 404: {"description": "Not found"}},
+    ),
+)
 class ApplicantAccessRequestViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -334,6 +385,12 @@ class ApplicantAccessRequestViewSet(
             return AccessRequestSerializer
         return AccessRequestSerializer
 
+    @extend_schema(
+        tags=["3. Access"],
+        summary="08. Applicant: Candidate certificates (with live chain status)",
+        operation_id="03_access_my_requests_candidate_certificates",
+        responses={200: {"type": "object"}},
+    )
     @action(detail=True, methods=["get"])
     def candidate_certificates(self, request, pk=None):
         """List applicant certs with live chain status (batch)."""
@@ -368,6 +425,13 @@ class ApplicantAccessRequestViewSet(
             return self.get_paginated_response(serial)
         return Response({"certificates": serial})
 
+    @extend_schema(
+        tags=["3. Access"],
+        summary="09. Applicant: Approve request (share only ACTIVE certs)",
+        operation_id="03_access_my_requests_approve",
+        request=AccessApproveSerializer,
+        responses={200: {"type": "object"}, 400: {"description": "No valid certificates"}},
+    )
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         """Approve with selected cert IDs; single if 1 hash else batch; share only ACTIVE."""
@@ -424,6 +488,12 @@ class ApplicantAccessRequestViewSet(
         send_status_update_email(ar, shared_count=len(valid_ids))
         return Response({"status": "approved", "certificates_shared": len(valid_ids), "created_ids": valid_ids, "skipped": skipped})
 
+    @extend_schema(
+        tags=["3. Access"],
+        summary="10. Applicant: Reject request",
+        operation_id="03_access_my_requests_reject",
+        responses={200: AccessRequestSerializer},
+    )
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         with transaction.atomic():
@@ -437,8 +507,22 @@ class ApplicantAccessRequestViewSet(
         return Response(AccessRequestSerializer(ar).data)
 
 
-# ───────────── Employer Certificate Access ─────────────
+# ───────────── Employer Certificate Access (shared) ─────────────
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["3. Access"],
+        summary="11. Employer: List shared certificates (APPROVED only)",
+        operation_id="03_access_employer_shared_certs_list",
+        responses={200: CertificateListSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["3. Access"],
+        summary="12. Employer: Get a shared certificate",
+        operation_id="03_access_employer_shared_certs_retrieve",
+        responses={200: {"type": "object"}, 404: {"description": "Not found"}},
+    ),
+)
 class EmployerCertificateViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -491,6 +575,12 @@ class EmployerCertificateViewSet(
             status=http,
         )
 
+    @extend_schema(
+        tags=["3. Access"],
+        summary="13. Employer: Download shared certificate PDF (inline)",
+        operation_id="03_access_employer_shared_certs_file",
+        responses={200: {"content": {"application/pdf": {}}}, 404: {"description": "Not found"}, 410: {"description": "Revoked"}},
+    )
     @action(detail=True, methods=["get"])
     def file(self, request, pk=None):
         """
@@ -545,3 +635,4 @@ class EmployerCertificateViewSet(
             return HttpResponse("Decryption failed: corrupted data or bad key.", status=500)
         except Exception as e:
             return HttpResponse(f"Decryption error: {e}", status=500)
+
