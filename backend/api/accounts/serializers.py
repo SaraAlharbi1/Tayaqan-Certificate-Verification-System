@@ -172,7 +172,6 @@ class EmployerSignupSerializer(serializers.Serializer):
             raise ValidationError({"cr_number": ["This CR number is already registered"]})
 
         data["cr_number_plain"] = cr_plain
-        data["verifier_id_hash"] = keccak256_hex(cr_plain)
         return data
 
     @transaction.atomic
@@ -188,7 +187,6 @@ class EmployerSignupSerializer(serializers.Serializer):
             work_email=validated["work_email"],
             company_name=validated["company_name"],
             cr_number_plain=validated["cr_number_plain"],
-            verifier_id_hash=validated["verifier_id_hash"],
             phone=validated.get("phone", ""),
             proof_doc=validated["proof_doc"],
         )

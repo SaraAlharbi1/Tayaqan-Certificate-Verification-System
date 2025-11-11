@@ -1,131 +1,280 @@
-// src/Pages/EmployerRole/CreateAccessRequest.tsx
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-
-type Applicant = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-};
-
-const MOCK_APPLICANTS: Applicant[] = [
-  {
-    id: "12345111",
-    name: "Rawan Mohammed Alshehri",
-    email: "rbinalabdullah@stg.kau.edu.sa",
-    phone: "0533750087",
-  },
-  // add more as needed
-];
+import { api } from "@/lib/api";
 
 export default function CreateAccessRequest() {
   const navigate = useNavigate();
-
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [success, setSuccess] = useState(false);
+  const [applicantData, setApplicantData] = useState<{name: string; email?: string} | null>(null);
+  const [fetchingApplicant, setFetchingApplicant] = useState(false);
+  const [applicantError, setApplicantError] = useState<string>("");
 
   const trimmed = query.trim();
-  const applicant = useMemo(
-    () => MOCK_APPLICANTS.find((a) => a.id === trimmed) || null,
-    [trimmed]
-  );
+  const looksLikeId = useMemo(() => /^\d{10}$/.test(trimmed), [trimmed]);
+
+  // Fetch applicant data when valid ID is entered
+  useEffect(() => {
+    let cancel = false;
+    
+    if (looksLikeId && trimmed) {
+      setFetchingApplicant(true);
+      setApplicantError("");
+      setApplicantData(null);
+      
+      // Debounce the API call
+      const timer = setTimeout(async () => {
+        try {
+          // Call API to verify applicant exists and get their name
+          const response = await api<{name: string; email?: string}>(`/employer/requests/verify-applicant/${trimmed}/`);
+          if (!cancel) {
+            setApplicantData(response);
+            setApplicantError("");
+            setFetchingApplicant(false);
+          }
+        } catch (e: any) {
+          if (!cancel) {
+            // Extract the most helpful error message
+            let errorMessage = "Applicant not found";
+            
+            if (e?.userMessage) {
+              errorMessage = e.userMessage;
+            } else if (e?.response?.data?.detail) {
+              errorMessage = e.response.data.detail;
+            } else if (e?.response?.data?.message) {
+              errorMessage = e.response.data.message;
+            } else if (e?.message) {
+              errorMessage = e.message;
+            }
+            
+            setApplicantError(errorMessage);
+            setApplicantData(null);
+            setFetchingApplicant(false);
+          }
+        }
+      }, 500);
+      
+      return () => {
+        cancel = true;
+        clearTimeout(timer);
+      };
+    } else {
+      setApplicantData(null);
+      setApplicantError("");
+      setFetchingApplicant(false);
+    }
+  }, [looksLikeId, trimmed]);
+
 
   const handleSubmit = async () => {
-    if (!applicant) return;
+    if (!looksLikeId || !applicantData) {
+      // Don't allow submission if applicant not found or invalid ID
+      if (!applicantData && looksLikeId) {
+        setError("Cannot send request: Applicant not found");
+      }
+      return;
+    }
+    
     try {
       setSubmitting(true);
-      // TODO: POST to your API:
-      // await api.post('/employer/access-requests', { applicantId: applicant.id })
-      alert(`Access request sent for ID ${applicant.id}`);
-      navigate("/employer/access"); // correct route back to list
-    } catch (err) {
-      alert("Failed to send request. Please try again.");
-    } finally {
+      setError("");
+      setSuccess(false);
+      
+      await api("/employer/requests/", {
+        method: "POST",
+        body: JSON.stringify({ applicant_national_id: trimmed }),
+      });
+      
+      // Show success message
+      setSuccess(true);
+      setQuery("");
+      
+      // Redirect after showing success message
+      setTimeout(() => {
+        navigate("/employer/access");
+      }, 1500);
+      
+    } catch (e: any) {
+      setError(e?.userMessage || e?.message || "Failed to create request. Please try again.");
       setSubmitting(false);
     }
   };
 
   return (
-    <section className="mx-auto max-w-6xl px-6 pt-10 pb-24">
-      {/* Title (gradient like other pages) */}
-      <div className="mb-2 flex items-center justify-between gap-4">
-        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-          Create{" "}
-          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-            Access Request
-          </span>
-        </h1>
-        <Link to="/employer/access" className="text-indigo-600 hover:underline">
-          ← Back to Access Requests
-        </Link>
-      </div>
-      <p className="text-gray-600 mb-8">
-        Enter the applicant’s national ID to request access to their certificates.
-      </p>
-
-      {/* Search by Applicant ID */}
-      <div className="mb-6">
-        <label htmlFor="search" className="sr-only">
-          Search by Applicant ID
-        </label>
-        <div className="relative">
-          <input
-            id="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSubmit();
-            }}
-            placeholder="Search by Applicant ID…"
-            className="w-full h-12 rounded-xl border border-black/10 px-4 pr-10 outline-none focus:ring-2 focus:ring-brand-500"
-          />
-          {/* optional icon slot on the right if you add one later */}
+    <section className="pt-0 pb-6">
+      <div className="auth-wrap">
+        <div className="mb-6">
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+            Create Access{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Request
+            </span>
+          </h1>
+          <p className="mt-1 text-gray-500">Enter the applicant's national ID to request access</p>
         </div>
-        <p className="text-sm text-gray-500 mt-2">
-          Type an exact ID (e.g., <code>12345111</code>) to load applicant info.
-        </p>
-      </div>
 
-      {/* Applicant card */}
-      {applicant ? (
-        <div className="rounded-xl border border-black/10 bg-white shadow-sm p-6 md:p-8 mb-6">
-          <h2 className="font-semibold text-brand-700 mb-4">Applicant Info</h2>
-          <dl className="grid grid-cols-1 sm:grid-cols-3 gap-y-3">
-            <dt className="text-gray-500">Name</dt>
-            <dd className="sm:col-span-2">{applicant.name}</dd>
+        {/* Success Message */}
+        {success && (
+          <div className="mb-6 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">Request sent successfully!</p>
+                <p className="text-sm text-emerald-700 mt-1">Redirecting to access requests...</p>
+              </div>
+            </div>
+          </div>
+        )}
 
-            <dt className="text-gray-500">ID</dt>
-            <dd className="sm:col-span-2">{applicant.id}</dd>
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 rounded-xl border-2 border-red-200 bg-red-50 p-4">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-red-800">Failed to create request</p>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
-            <dt className="text-gray-500">Email</dt>
-            <dd className="sm:col-span-2">{applicant.email}</dd>
+        {/* Input Card */}
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="p-6">
+            <div className="mb-4">
+              <label htmlFor="search" className="mb-2 block text-sm font-semibold text-gray-700">
+                Applicant National ID
+              </label>
+              <input
+                id="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                placeholder="Enter 10-digit National ID"
+                disabled={submitting || success}
+                className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-900 outline-none ring-0 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              {trimmed && (
+                <div className="flex items-center mt-2">
+                  <p className={`text-sm font-medium ${looksLikeId ? "text-emerald-600" : "text-red-600"}`}>
+                    {looksLikeId ? "✓ Valid format" : "✗ Invalid format (must be 10 digits)"}
+                  </p>
+                </div>
+              )}
+            </div>
 
-            <dt className="text-gray-500">Phone number</dt>
-            <dd className="sm:col-span-2">{applicant.phone}</dd>
-          </dl>
+            {/* Applicant Preview Card */}
+            {looksLikeId && (
+              <div className="mb-4">
+                {fetchingApplicant && (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-center gap-3">
+                    <svg className="animate-spin h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <p className="text-sm text-gray-600">Verifying applicant...</p>
+                  </div>
+                )}
+
+                {!fetchingApplicant && applicantData && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 p-2 bg-emerald-100 rounded-lg">
+                        <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-emerald-800">Applicant Found</p>
+                        <p className="text-base font-bold text-emerald-900 mt-1">{applicantData.name}</p>
+                        {applicantData.email && (
+                          <p className="text-sm text-emerald-700 mt-0.5">{applicantData.email}</p>
+                        )}
+                      </div>
+                      <svg className="w-6 h-6 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                )}
+
+                {!fetchingApplicant && applicantError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex items-start gap-3">
+                    <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">Applicant Not Found</p>
+                      <p className="text-sm text-red-700 mt-1">{applicantError}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Info Box */}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 flex gap-3">
+              <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="text-sm text-blue-800">
+                <p className="font-semibold mb-1">About Access Requests</p>
+                <p>When you send a request, the applicant will be notified and can choose to approve or decline sharing their certificates with you.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 flex items-center justify-between">
+            <Link 
+              to="/employer/access" 
+              className="text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancel
+            </Link>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!looksLikeId || !applicantData || submitting || success}
+              className={`inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors ${
+                !looksLikeId || !applicantData || submitting || success
+                  ? "opacity-50 cursor-not-allowed"
+                  : ""
+              }`}
+            >
+              {submitting ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Sending...
+                </>
+              ) : success ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Sent!
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                  Send Request
+                </>
+              )}
+            </button>
+          </div>
         </div>
-      ) : trimmed ? (
-        <div className="rounded-xl border border-black/10 bg-white shadow-sm p-5 mb-6 text-sm text-gray-600">
-          No applicant found for ID <span className="font-mono">{trimmed}</span>.
-        </div>
-      ) : null}
-
-      {/* Actions */}
-      <div className="flex justify-end gap-3">
-        <Link to="/employer/access" className="btn btn-ghost">
-          Cancel
-        </Link>
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!applicant || submitting}
-          className={`btn btn-primary ${
-            !applicant || submitting ? "opacity-60 cursor-not-allowed" : ""
-          }`}
-        >
-          {submitting ? "Sending…" : "Send Request Access"}
-        </button>
       </div>
     </section>
   );

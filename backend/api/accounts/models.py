@@ -126,9 +126,8 @@ class Employer(models.Model):
     work_email = models.EmailField()
     company_name = models.CharField(max_length=200)
 
-    # CR number (Company Identifier), kept as plain for UI + a hash for chain/events
+    # CR number (Company Identifier) - only plain version needed
     cr_number_plain = models.CharField(max_length=50, unique=True, db_index=True)
-    verifier_id_hash = models.CharField(max_length=66, unique=True, db_index=True)
 
     phone = models.CharField(max_length=20, blank=True)
     proof_doc = models.FileField(upload_to="proofs/employers/", blank=True, null=True)

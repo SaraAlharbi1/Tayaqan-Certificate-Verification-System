@@ -1,15 +1,10 @@
 require("dotenv").config();
 require("hardhat-deploy");
-require("@nomicfoundation/hardhat-ethers");
 require("hardhat-gas-reporter");
-require("@nomicfoundation/hardhat-chai-matchers");
-
+require("@nomicfoundation/hardhat-toolbox"); 
 
 module.exports = {
-  solidity: {
-    version: "0.8.28",
-    settings: { optimizer: { enabled: true, runs: 1000 } },
-  },
+  solidity: { version: "0.8.28", settings: { optimizer: { enabled: true, runs: 1000 } } },
   namedAccounts: { deployer: { default: 0 } },
   networks: {
     hardhat: {},
@@ -18,7 +13,7 @@ module.exports = {
   gasReporter: {
     enabled: true,
     currency: "USD",
-    coinmarketcap: process.env.CMC_KEY, // <— move the key to .env
+    coinmarketcap: process.env.CMC_KEY,
     gasPrice: 20,
     showTimeSpent: true,
   },

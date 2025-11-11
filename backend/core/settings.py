@@ -35,6 +35,8 @@ INSTALLED_APPS = [
     # Project apps
     "api.accounts",
     "api.certificates",
+    "api.access",
+
 ]
 
 MIDDLEWARE = [
@@ -129,6 +131,9 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [
         {"name": "Accounts", "description": "Authentication & account management."},
         {"name": "Certificates", "description": "Issuing, listing, revoking certificates."},
+        {"name": "Access – Employer", "description": "Employer creates and views requests."},
+        {"name": "Access – Applicant", "description": "Applicant reviews and approves/declines."},
+        {"name": "My Certificates", "description": "Applicant’s own certificates."},
     ],
 }
 

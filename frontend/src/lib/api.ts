@@ -1,5 +1,11 @@
 /** lib/api.ts */
-import { getAccessToken, setAccessToken, getRefreshToken, clearTokens } from "./storage";
+import {
+  getAccessToken,
+  setAccessToken,
+  getRefreshToken,
+  setRefreshToken, // handle rotated refresh tokens
+  clearTokens,
+} from "./storage";
 
 const BASE_URL = "http://127.0.0.1:8000/api";
 let refreshInFlight: Promise<string | null> | null = null;
@@ -10,22 +16,24 @@ export type ApiError = Error & {
   userMessage?: string;
   detail?: any;
   data?: any;
-  response: { status: number; data: any }; 
+  response: { status: number; data: any };
 };
 
 async function refreshAccessToken(): Promise<string | null> {
   const refresh = getRefreshToken();
   if (!refresh) return null;
 
-  const resp = await fetch(`${BASE_URL}/auth/refresh`, {
+  const resp = await fetch(`${BASE_URL}/auth/refresh/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh }),
   });
   if (!resp.ok) return null;
 
-  const data = (await resp.json()) as { access: string };
+  // SimpleJWT may return { access, refresh? } when ROTATE_REFRESH_TOKENS=True
+  const data = (await resp.json()) as { access: string; refresh?: string };
   setAccessToken(data.access);
+  if (data.refresh) setRefreshToken(data.refresh);
   return data.access;
 }
 
@@ -54,6 +62,7 @@ function buildApiError(res: Response, data: any, fallbackText: string): ApiError
     data?.user_message ?? data?.detail ?? data?.error ?? fallbackText ?? res.statusText;
 
   const err = new Error(userMessage) as ApiError;
+  (err as any).status = res.status;
   err.status = res.status;
   err.code = code;
   err.userMessage = userMessage;
@@ -63,7 +72,7 @@ function buildApiError(res: Response, data: any, fallbackText: string): ApiError
   return err;
 }
 
-/** JSON-first helper (existing behavior). */
+/** JSON-first helper. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const access = getAccessToken() || undefined;
   const doFetch = (token?: string) =>

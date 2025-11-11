@@ -1,8 +1,12 @@
+# backend/api/accounts/views.py
 """
 HTTP endpoints for Accounts (router + ViewSets, no APIView).
 """
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -57,7 +61,6 @@ class AuthViewSet(viewsets.GenericViewSet):
       GET  /api/auth/me/
     """
     queryset = User.objects.none()  # not used, but required by GenericViewSet
-
     permission_classes = [AllowAny]
 
     @action(methods=["post"], detail=False, url_path="login", permission_classes=[AllowAny])
@@ -227,25 +230,60 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
 
     @action(methods=["patch"], detail=True, url_path="status")
     def status(self, request, pk=None):
+        """
+        Update Employer/Institution status and email them using HTML template only.
+        """
         ser = AdminStatusUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         status_choice = ser.validated_data["status"]
         notes = ser.validated_data.get("notes", "")
 
         user = get_object_or_404(User, id=pk)
+        frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
+        dashboard_url = f"{frontend}/"
+
+        # helper to send HTML-only (plain text derived via strip_tags)
+        def send_status_email(to_email: str, name: str, kind: str):
+            ctx = {
+                "name": name,
+                "kind": kind,
+                "status": status_choice,
+                "notes": notes,
+                "dashboard_url": dashboard_url,
+            }
+            html = render_to_string("Registration_update.html", ctx)
+            text = strip_tags(html)
+            send_mail(
+                subject=f"{kind} registration {status_choice}",
+                message=text,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "Tayaqan <no-reply@tayaqan.local>"),
+                recipient_list=[to_email],
+                fail_silently=True,
+                html_message=html,
+            )
 
         if user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
-            e = user.employer
+            e: Employer = user.employer
             e.status = status_choice
             e.status_notes = notes
             e.save(update_fields=["status", "status_notes"])
+
+            name = (e.full_name or "").strip() or user.email.split("@")[0]
+            if user.email:
+                send_status_email(user.email, name, "Employer")
+
             return Response({"id": user.id, "role": "EMPLOYER", "status": e.status}, status=200)
 
         if user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
-            i = user.institution
+            i: Institution = user.institution
             i.status = status_choice
             i.status_notes = notes
             i.save(update_fields=["status", "status_notes"])
+
+            name = (getattr(i, "contact_name", "") or "").strip() or user.email.split("@")[0]
+            if user.email:
+                send_status_email(user.email, name, "Institution")
+
             return Response({"id": user.id, "role": "INSTITUTION", "status": i.status}, status=200)
 
         return Response({"message": "No moderatable profile for this user."}, status=400)

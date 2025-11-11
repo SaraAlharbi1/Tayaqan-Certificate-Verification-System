@@ -1,13 +1,14 @@
 // src/pages/institution/InstitutionDashboard.tsx
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { University, FileText, Upload } from "lucide-react";
-import { me } from "@/lib/auth";
+import { Link, useNavigate } from "react-router-dom";
+import { University, FileText, Upload, LogOut } from "lucide-react";
+import { me, logout } from "@/lib/auth";
 import type { MeResponse } from "@/lib/types";
 
 export default function InstitutionDashboard() {
   const [userData, setUserData] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -22,6 +23,11 @@ export default function InstitutionDashboard() {
     };
     fetchUserData();
   }, []);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/", { replace: true });
+  };
 
   if (loading) {
     return (
@@ -45,17 +51,27 @@ export default function InstitutionDashboard() {
 
   return (
     <section className="max-w-6xl mx-auto px-6 py-10">
-      {/* Welcome header */}
-      <div className="mb-10">
-        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-          Welcome back,{" "}
-          <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-            {institutionName}
-          </span>
-        </h1>
-        <p className="mt-2 text-gray-600 text-lg">
-          Manage your institution’s certificates and student records
-        </p>
+      {/* Welcome header with logout button */}
+      <div className="mb-10 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+            Welcome back,{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              {institutionName}
+            </span>
+          </h1>
+          <p className="mt-2 text-gray-600 text-lg">
+            Manage your institution’s certificates and student records
+          </p>
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-red-50 to-pink-50 border-2 border-red-200 text-red-700 hover:from-red-100 hover:to-pink-100 hover:border-red-300 hover:shadow-lg transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+        >
+          <LogOut className="w-4 h-4 group-hover:scale-110 group-hover:-translate-x-0.5 transition-transform" />
+          <span className="font-semibold text-sm">Logout</span>
+        </button>
       </div>
 
       {/* Status banner */}

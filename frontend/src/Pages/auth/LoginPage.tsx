@@ -10,7 +10,6 @@ const normRole = (r: unknown) =>
     .replace(/^_/, "")
     .toLowerCase();
 
-// Extract most helpful backend error message (DRF-compatible)
 async function getErrorMessage(err: any): Promise<string> {
   const dataFromAxios = err?.response?.data;
   if (dataFromAxios) {
@@ -54,27 +53,23 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1) Authenticate
       await login(normalizeIdentifier(identifier), password);
 
-      // 2) Get profile → persist role so RoleRoute can allow access
       let role = "";
       try {
         const profile = await me();
         role = normRole(profile?.role);
         localStorage.setItem("user", JSON.stringify({ id: profile?.id, role }));
       } catch {
-        /* proceed without role; fallback below */
+        /* proceed without role */
       }
 
-      // 3) If user came from protected route, return there
       const from = (location.state?.from as any)?.pathname;
       if (from) {
         nav(from, { replace: true });
         return;
       }
 
-      // 4) Route by role
       if (role === "institution") {
         nav("/institution", { replace: true });
         return;
@@ -88,7 +83,6 @@ export default function LoginPage() {
         return;
       }
 
-      // 5) Fallback
       nav("/", { replace: true });
     } catch (err: any) {
       setError(await getErrorMessage(err));
@@ -98,30 +92,40 @@ export default function LoginPage() {
   }
 
   return (
-    <section className="bg-gradient-to-b from-white to-surface -mt-6 md:-mt-10">
-      <div className="mx-auto max-w-6xl px-6 pt-8 md:pt-10 pb-14 md:pb-16 flex justify-center">
-        <div className="w-full max-w-2xl rounded-2xl border border-gray-200 bg-white p-6 md:p-8 shadow-sm">
-          {/* Heading (brand gradient + underline to match site style) */}
-          <div className="mb-6 text-center">
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">
-              Welcome{" "}
-              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                back
-              </span>
-              .
-            </h1>
-            <div className="flex justify-center mt-2">
-              <span className="block h-1 w-16 bg-brand-600 rounded-full" />
-            </div>
-            <p className="text-muted mt-3">
-              <span className="text-brand-600 font-semibold">Sign in</span> to your account
-            </p>
-          </div>
+    <section className="pt-0 pb-6">
+      <div className="mx-auto max-w-xl px-6 pt-8 pb-10">
+        {/* Header */}
+        <div className="mb-6 text-center">
+          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+            Welcome{" "}
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Back
+            </span>
+          </h1>
+          <p className="mt-1 text-gray-500">Sign in to your account</p>
+        </div>
 
-          <form onSubmit={onSubmit} className="space-y-4" noValidate>
-            <label className="block">
-              <span className="block text-sm font-medium mb-1">Email or National ID</span>
+        {/* Error Banner */}
+        {error && (
+          <div className="mb-6 rounded-xl border-2 border-red-200 bg-red-50 p-4">
+            <div className="flex items-start gap-3">
+              <svg className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Form Card */}
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <form onSubmit={onSubmit} className="p-6 space-y-5" noValidate>
+            <div>
+              <label htmlFor="identifier" className="mb-2 block text-sm font-semibold text-gray-700">
+                Email or National ID
+              </label>
               <input
+                id="identifier"
                 type="text"
                 required
                 value={identifier}
@@ -129,16 +133,18 @@ export default function LoginPage() {
                   setIdentifier(e.target.value);
                   if (error) setError(null);
                 }}
-                className="w-full h-11 rounded-xl border border-gray-200 px-4 outline-none focus:ring-2 focus:ring-indigo-500/30"
+                className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-900 outline-none ring-0 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500"
                 placeholder="demo@example.com or 1234567890"
                 autoComplete="username"
-                inputMode="text"
               />
-            </label>
+            </div>
 
-            <label className="block">
-              <span className="block text-sm font-medium mb-1">Password</span>
+            <div>
+              <label htmlFor="password" className="mb-2 block text-sm font-semibold text-gray-700">
+                Password
+              </label>
               <input
+                id="password"
                 type="password"
                 required
                 value={password}
@@ -146,42 +152,40 @@ export default function LoginPage() {
                   setPassword(e.target.value);
                   if (error) setError(null);
                 }}
-                className="w-full h-11 rounded-xl border border-gray-200 px-4 outline-none focus:ring-2 focus:ring-indigo-500/30"
+                className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-900 outline-none ring-0 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500"
                 placeholder="Enter your password"
                 autoComplete="current-password"
               />
-            </label>
+            </div>
 
-            {error && (
-              <div
-                className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-rose-700 text-sm"
-                role="alert"
-                aria-live="assertive"
-              >
-                {error}
-              </div>
-            )}
-
-            <div className="flex justify-between items-center text-sm">
-              <Link to="/forgot-password" className="text-brand-600 hover:text-brand-700">
-                Forgot Password
+            <div className="flex items-center justify-between pt-2">
+              <Link to="/forgot-password" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">
+                Forgot Password?
               </Link>
-
               <button
                 type="submit"
-                className="btn btn-primary"
+                className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={loading}
-                aria-busy={loading}
               >
-                {loading ? "Signing in…" : "Sign in"}
+                {loading ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Signing in…
+                  </>
+                ) : (
+                  "Sign in"
+                )}
               </button>
             </div>
           </form>
 
-          <div className="mt-6 text-center text-sm text-muted">
-            Don’t have an account?{" "}
-            <Link to="/signup" className="text-brand-600 hover:text-brand-700">
-              Choose your role to sign up
+          <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 text-center text-sm text-gray-600">
+            Don't have an account?{" "}
+            <Link to="/signup" className="font-medium text-indigo-600 hover:text-indigo-700">
+              Sign up
             </Link>
           </div>
         </div>

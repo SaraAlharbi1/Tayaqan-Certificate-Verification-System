@@ -1,4 +1,5 @@
 # backend/api/certificates/views.py
+
 import os
 import sys
 import json
@@ -7,7 +8,7 @@ import tempfile
 import subprocess
 import secrets
 from pathlib import Path
-import pathlib
+from typing import Dict, List
 
 from django.shortcuts import get_object_or_404
 from django.db import transaction, IntegrityError
@@ -19,13 +20,13 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 
-from drf_spectacular.utils import (
-    extend_schema,
-    extend_schema_view,
-    OpenApiParameter,
-)
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.openapi import OpenApiTypes
 
 from Crypto.Cipher import AES
@@ -36,9 +37,11 @@ from .serializers import (
     CertificateListSerializer,
     CertificateDetailSerializer,
     MyCertificateListSerializer,
-    MyCertificateDetailSerializer,
 )
 from api.accounts.models import Institution, Applicant
+
+# centralized chain service
+from utils.blockchain_service import BlockchainService
 
 
 # ------------------------- helpers -------------------------
@@ -79,6 +82,27 @@ def err_409(code, msg, d=None): return _api_err(status.HTTP_409_CONFLICT, code, 
 def err_500(code, msg, d=None): return _api_err(status.HTTP_500_INTERNAL_SERVER_ERROR, code, msg, d)
 
 
+def _norm_hash(h: str) -> str:
+    if not h:
+        return ""
+    h = h.strip().lower()
+    return h if h.startswith("0x") else ("0x" + h)
+
+
+def _coerce_bool(x):
+    if isinstance(x, bool):
+        return x
+    return str(x).strip().lower() in ("true", "1", "yes")
+
+
+# ------------------------- pagination -------------------------
+
+class CertificatePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 # ========================= Institution scope =========================
 
 @extend_schema_view(
@@ -86,8 +110,6 @@ def err_500(code, msg, d=None): return _api_err(status.HTTP_500_INTERNAL_SERVER_
         tags=["Certificates"],
         summary="List certificates for the current institution",
         parameters=[
-            OpenApiParameter(name="status", type=OpenApiTypes.STR, required=False, description="Exact status filter (e.g. ACTIVE or REVOKED)"),
-            OpenApiParameter(name="status__in", type=OpenApiTypes.STR, required=False, description="Comma-separated list of statuses (e.g. ACTIVE,REVOKED)"),
             OpenApiParameter(name="search", type=OpenApiTypes.STR, required=False),
             OpenApiParameter(name="ordering", type=OpenApiTypes.STR, required=False),
             OpenApiParameter(name="page", type=OpenApiTypes.INT, required=False),
@@ -106,30 +128,126 @@ class InstitutionCertificateViewSet(
     viewsets.GenericViewSet,
 ):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = CertificatePagination
 
-    filterset_fields = {
-        "status": ["exact", "in"],
-        "issued_on": ["gte", "lte"],
-    }
-
+    filterset_fields = {"issued_on": ["gte", "lte"]}
     search_fields = [
         "display_label",
         "serial_number",
         "applicant__full_name",
         "applicant__national_id_plain",
     ]
-
     ordering_fields = ["issued_on", "id", "created_at", "serial_number"]
     ordering = ["-issued_on", "-id"]
 
     def get_queryset(self) -> QuerySet:
         institution = _resolve_institution(self.request.user)
-        qs = Certificate.objects.filter(institution=institution).select_related("applicant")
-        return qs.order_by(*self.ordering)
+        return (
+            Certificate.objects
+            .filter(institution=institution)
+            .select_related("applicant", "institution")
+            .order_by(*self.ordering)
+        )
 
     def get_serializer_class(self):
         return CertificateDetailSerializer if self.action == "retrieve" else CertificateListSerializer
+
+    # -------- Chain helpers (service-based) --------
+
+    def _verify_batch_map(self, file_hashes: List[str]) -> Dict[str, dict]:
+        """Batch verify → returns {fileHashLower: {'exists','revoked'}}"""
+        ver = BlockchainService.verify_certificates_batch([_norm_hash(h) for h in (file_hashes or []) if h]) or {}
+        return {(_norm_hash(k) or "").lower(): v for k, v in ver.items()}
+
+    def _verify_one_map(self, file_hash: str) -> Dict[str, dict]:
+        """(kept for compatibility)"""
+        if not file_hash:
+            return {}
+        return self._verify_batch_map([file_hash])
+
+    def _tx_info(self, file_hash: str) -> dict:
+        return BlockchainService.get_transaction_info(_norm_hash(file_hash)) or {}
+
+    # -------------------- overridden retrieve to include tx + onchain status --------------------
+    def retrieve(self, request, pk=None):
+        institution = _resolve_institution(self.request.user)
+        cert = get_object_or_404(
+            Certificate.objects.filter(institution=institution).select_related("applicant", "institution"),
+            pk=pk,
+        )
+        data = CertificateDetailSerializer(cert).data
+
+        info = self._tx_info(cert.file_hash) if cert.file_hash else {}
+        # TRUE single-call verify:
+        v = BlockchainService.verify_certificate(_norm_hash(cert.file_hash)) if cert.file_hash else {}
+
+        exists = _coerce_bool(v.get("exists"))
+        revoked = _coerce_bool(v.get("revoked"))
+        onchain_status = "ACTIVE" if (exists and not revoked) else ("REVOKED" if revoked else "INVALID")
+
+        data.update({
+            "onchain_status": onchain_status,
+            "tx_hash": info.get("revokeTx") or info.get("issuedTx"),
+            "block_number": info.get("revokeBlock") or info.get("issuedBlock"),
+            "issuedTx": info.get("issuedTx"),
+            "issuedBlock": info.get("issuedBlock"),
+            "revokeTx": info.get("revokeTx"),
+            "revokeBlock": info.get("revokeBlock"),
+        })
+        return Response(data, status=200)
+
+    # -------------------- Chain endpoints --------------------
+
+    @extend_schema(
+        tags=["Certificates"],
+        summary="Batch verify (by file_hash) on blockchain",
+        request={"application/json": {
+            "type": "object",
+            "properties": {"file_hashes": {"type": "array", "items": {"type": "string"}}},
+            "required": ["file_hashes"]
+        }},
+        responses={200: {"type": "array", "items": {"type": "object"}}},
+    )
+    @action(methods=["post"], detail=False, url_path="verify-batch", parser_classes=[JSONParser])
+    def verify_batch(self, request):
+        hashes = (request.data or {}).get("file_hashes") or []
+        if not isinstance(hashes, list) or not hashes:
+            return err_400("missing_hashes", "file_hashes must be a non-empty array.")
+
+        inst = _resolve_institution(self.request.user)
+        allowed = set(
+            Certificate.objects.filter(institution=inst, file_hash__in=hashes)
+            .values_list("file_hash", flat=True)
+        )
+        to_check = [h for h in hashes if h in allowed]
+        if not to_check:
+            return Response([], status=200)
+
+        ver_map = self._verify_batch_map(to_check)
+        out = [
+            {"fileHash": fh, "exists": _coerce_bool(v.get("exists")), "revoked": _coerce_bool(v.get("revoked"))}
+            for fh, v in ver_map.items()
+        ]
+        return Response(out, status=200)
+
+    @extend_schema(
+        tags=["Certificates"],
+        summary="Most recent tx info (Issued/Revoked) for this certificate from chain",
+        responses={200: {"type": "object"}},
+    )
+    @action(methods=["get"], detail=True, url_path="tx-info", permission_classes=[IsAuthenticated])
+    def tx_info(self, request, pk=None):
+        institution = _resolve_institution(self.request.user)
+        cert = get_object_or_404(
+            Certificate.objects.filter(institution=institution), pk=pk
+        )
+        info = self._tx_info(cert.file_hash)
+        return Response(info or {}, status=200)
+
+    # -------------------- File download --------------------
 
     @extend_schema(
         tags=["Certificates"],
@@ -144,9 +262,12 @@ class InstitutionCertificateViewSet(
             pk=pk,
         )
 
+        if not cert.cid_enc:
+            return err_500("missing_cid", "Encrypted file CID is missing.")
+
         try:
             out = subprocess.check_output(
-                ["node", "backend_scripts/fetch_cid.js", cert.cid_enc],
+                ["node", "utils/fetch_cid.js", cert.cid_enc],
                 text=True,
                 stderr=subprocess.STDOUT,
                 timeout=60,
@@ -161,11 +282,11 @@ class InstitutionCertificateViewSet(
         except Exception as e:
             return err_500("parse_storage_payload_failed", "Unexpected storage response.", {"err": str(e)})
 
-        key = bytes.fromhex(cert.enc_key_protected)
-        nonce = bytes.fromhex(cert.enc_nonce)
-        tag = bytes.fromhex(cert.enc_tag)
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
         try:
+            key = bytes.fromhex(cert.enc_key_protected)
+            nonce = bytes.fromhex(cert.enc_nonce)
+            tag = bytes.fromhex(cert.enc_tag)
+            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
             pdf_bytes = cipher.decrypt_and_verify(enc_bytes, tag)
         except ValueError:
             return err_500("decryption_failed", "Decryption failed. Stored data may be corrupted.")
@@ -173,6 +294,8 @@ class InstitutionCertificateViewSet(
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'inline; filename="certificate_{cert.id}.pdf"'
         return resp
+
+    # -------------------- Issue certificate --------------------
 
     @extend_schema(
         tags=["Certificates"],
@@ -192,7 +315,13 @@ class InstitutionCertificateViewSet(
         },
         responses={200: CertificateDetailSerializer, 400: {}, 403: {}, 409: {}, 500: {}},
     )
-    @action(methods=["post"], detail=False, url_path="issue", permission_classes=[IsAuthenticated])
+    @action(
+        methods=["post"],
+        detail=False,
+        url_path="issue",
+        permission_classes=[IsAuthenticated],
+        parser_classes=[MultiPartParser, FormParser],
+    )
     def issue(self, request, *args, **kwargs):
         institution = _resolve_institution(request.user)
         if institution.status != "APPROVED":
@@ -207,7 +336,6 @@ class InstitutionCertificateViewSet(
 
         applicant = get_object_or_404(Applicant, national_id_plain=national_id)
 
-        # read bytes + hash
         try:
             file_obj.seek(0)
         except Exception:
@@ -216,7 +344,6 @@ class InstitutionCertificateViewSet(
         file_hash = keccak256_hex(file_bytes)
         applicant_hash = applicant.national_id_hash
 
-        # duplicate guard
         if Certificate.objects.filter(institution=institution, file_hash=file_hash).exists():
             return err_409(
                 "duplicate_file_for_institution",
@@ -226,7 +353,7 @@ class InstitutionCertificateViewSet(
 
         # 1) On-chain
         proc = subprocess.run(
-            [sys.executable, "backend_scripts/issue_onchain.py", applicant_hash, file_hash],
+            [sys.executable, "utils/issue_onchain.py", applicant_hash, file_hash],
             text=True, capture_output=True, env={**os.environ, "PYTHONWARNINGS": "ignore"},
         )
         if proc.returncode != 0:
@@ -235,8 +362,8 @@ class InstitutionCertificateViewSet(
 
         try:
             onchain = json.loads((proc.stdout or "").strip())
-            tx_hash = onchain.get("tx")
-            block_no = onchain.get("block")
+            tx_hash = onchain.get("tx") or onchain.get("txHash")
+            block_no = onchain.get("block") or onchain.get("blockNumber")
         except Exception:
             return err_500("onchain_response_parse_failed", "Unexpected response from blockchain script.", {"raw": proc.stdout})
 
@@ -248,13 +375,13 @@ class InstitutionCertificateViewSet(
 
         token_file = os.getenv("STORACHA_TOKEN_FILE")
         if token_file and not os.getenv("STORACHA_PROOF"):
-            p = pathlib.Path(token_file)
+            p = Path(token_file)
             if p.exists():
                 os.environ["STORACHA_PROOF"] = p.read_text(encoding="utf-8").strip()
 
         try:
             out = subprocess.check_output(
-                ["node", "backend_scripts/issue_upload.js", tmp_path],
+                ["node", "utils/issue_upload.js", tmp_path],
                 text=True, stderr=subprocess.STDOUT, env=os.environ.copy(),
             )
             data = json.loads(out)
@@ -286,20 +413,31 @@ class InstitutionCertificateViewSet(
                     display_label=request.data.get("display_label") or None,
                     issued_on=request.data.get("issued_on") or None,
                     serial_number=request.data.get("serial_number") or None,
-                    status="ISSUED_ONCHAIN",
-                    tx_hash=tx_hash,
-                    block_number=block_no,
                 )
         except IntegrityError:
-            return err_409("certificate_conflict", "A certificate with the same unique fields already exists.", {"file_hash": file_hash})
+            return err_409(
+                "certificate_conflict",
+                "A certificate with the same file was already issued by your institution.",
+                {"file_hash": file_hash},
+            )
 
-        return Response(CertificateDetailSerializer(cert).data, status=200)
+        data = CertificateDetailSerializer(cert).data
+        info = self._tx_info(cert.file_hash) if cert.file_hash else {}
+        data.update({
+            "tx_hash": info.get("revokeTx") or info.get("issuedTx"),
+            "block_number": info.get("revokeBlock") or info.get("issuedBlock"),
+            "issuedTx": info.get("issuedTx"),
+            "issuedBlock": info.get("issuedBlock"),
+            "revokeTx": info.get("revokeTx"),
+            "revokeBlock": info.get("revokeBlock"),
+        })
+        return Response(data, status=200)
 
     @extend_schema(
         tags=["Certificates"],
-        summary="Revoke a certificate (on-chain + DB). Idempotent.",
+        summary="Revoke a certificate on-chain (DB left unchanged).",
         request=None,
-        responses={200: CertificateDetailSerializer, 404: {"description": "Not found"}},
+        responses={200: {"type": "object"}, 404: {"description": "Not found"}},
     )
     @action(methods=["post"], detail=True, url_path="revoke", permission_classes=[IsAuthenticated])
     def revoke(self, request, pk=None):
@@ -309,11 +447,8 @@ class InstitutionCertificateViewSet(
             pk=pk,
         )
 
-        if cert.status == "REVOKED":
-            return Response(CertificateDetailSerializer(cert).data, status=200)
-
         proc = subprocess.run(
-            [sys.executable, "backend_scripts/revoke_onchain.py", cert.file_hash],
+            [sys.executable, "utils/revoke_onchain.py", cert.file_hash],
             text=True, capture_output=True,
             env={**os.environ, "PYTHONWARNINGS": "ignore"},
         )
@@ -323,23 +458,18 @@ class InstitutionCertificateViewSet(
             if "NotFound" in out:
                 return err_404("onchain_not_found", "Certificate not found on-chain.", {"output": out})
             if "AlreadyRevoked" in out:
-                cert.status = "REVOKED"
-                cert.save(update_fields=["status", "updated_at"])
-                return Response(CertificateDetailSerializer(cert).data, status=200)
-
+                info = self._tx_info(cert.file_hash)
+                return Response({"status": "REVOKED", **(info or {})}, status=200)
             return err_500("onchain_revoke_failed", "Blockchain revoke failed.", {"output": out})
 
         raw = (proc.stdout or "").strip()
         try:
             onchain = json.loads(raw)
         except Exception:
-            return err_500("onchain_response_parse_failed", "Unexpected response from blockchain script.", {"raw": raw})
+            onchain = {}
 
-        cert.revoke_tx_hash = onchain.get("tx")
-        cert.revoke_block_number = onchain.get("block")
-        cert.status = "REVOKED"
-        cert.save(update_fields=["status", "revoke_tx_hash", "revoke_block_number", "updated_at"])
-        return Response(CertificateDetailSerializer(cert).data, status=200)
+        info = self._tx_info(cert.file_hash)
+        return Response({"status": "REVOKED", "revoke": onchain, "tx": info}, status=200)
 
 
 # ========================= Applicant scope =========================
@@ -357,30 +487,23 @@ class InstitutionCertificateViewSet(
     ),
     retrieve=extend_schema(
         tags=["My Certificates"],
-        summary="Get my certificate details",
-        responses={200: MyCertificateDetailSerializer, 404: {"description": "Not found"}},
+        summary="Get my certificate details (with on-chain status + tx info)",
+        responses={200: {"type": "object"}, 404: {"description": "Not found"}},
     ),
 )
-class MyCertificateViewSet(
+class MyCertificatesViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
     permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    parser_classes = [JSONParser]
+    pagination_class = CertificatePagination
 
-    filterset_fields = {
-        "status": ["exact", "in"],
-        "issued_on": ["gte", "lte"],
-    }
-
-    search_fields = [
-        "display_label",
-        "serial_number",
-        "status",
-        "institution__institution_name",
-    ]
-
+    filterset_fields = {"issued_on": ["gte", "lte"]}
+    search_fields = ["display_label", "serial_number", "institution__institution_name"]
     ordering_fields = ["issued_on", "id", "created_at", "serial_number"]
     ordering = ["-issued_on", "-id"]
 
@@ -394,16 +517,95 @@ class MyCertificateViewSet(
         )
 
     def get_serializer_class(self):
-        return MyCertificateDetailSerializer if self.action == "retrieve" else MyCertificateListSerializer
+        return MyCertificateListSerializer
+
+    # -------- Chain helpers (service-based) --------
+
+    def _verify_batch_map(self, file_hashes: List[str]) -> Dict[str, dict]:
+        ver = BlockchainService.verify_certificates_batch([_norm_hash(h) for h in (file_hashes or []) if h]) or {}
+        return {(_norm_hash(k) or "").lower(): v for k, v in ver.items()}
+
+    def _verify_one_map(self, file_hash: str) -> Dict[str, dict]:
+        """(kept for compatibility)"""
+        if not file_hash:
+            return {}
+        return self._verify_batch_map([file_hash])
+
+    def _tx_info(self, file_hash: str) -> dict:
+        return BlockchainService.get_transaction_info(_norm_hash(file_hash)) or {}
+
+    # -------------------- Endpoints --------------------
 
     @extend_schema(
         tags=["My Certificates"],
-        summary="Download my certificate (decrypted PDF, inline)",
-        responses={200: {"content": {"application/pdf": {}}}, 404: {"description": "Not found"}},
+        summary="Batch verify my certificates (JSON)",
+        request={"application/json": {
+            "type": "object",
+            "properties": {"file_hashes": {"type": "array", "items": {"type": "string"}}},
+            "required": ["file_hashes"]
+        }},
+        responses={200: {"type": "array", "items": {"type": "object"}}},
+    )
+    @action(methods=["post"], detail=False, url_path="verify-batch", parser_classes=[JSONParser])
+    def verify_batch(self, request):
+        body = request.data
+        if not isinstance(body, dict):
+            return err_400("bad_body", "Body must be JSON object with file_hashes array.")
+        hashes = body.get("file_hashes")
+        if not isinstance(hashes, list) or not hashes:
+            return Response([], status=200)
+
+        owned = set(self.get_queryset().filter(file_hash__in=hashes).values_list("file_hash", flat=True))
+        to_check = [h for h in hashes if h in owned]
+        if not to_check:
+            return Response([], status=200)
+
+        ver_map = self._verify_batch_map(to_check)
+        out = [
+            {"fileHash": fh, "exists": _coerce_bool(v.get("exists")), "revoked": _coerce_bool(v.get("revoked"))}
+            for fh, v in ver_map.items()
+        ]
+        return Response(out, status=200)
+
+    # ---- GET /api/my/certificates/{id}/ ----
+    def retrieve(self, request, pk=None):
+        applicant = _resolve_applicant(request.user)
+        cert = get_object_or_404(
+            Certificate.objects.filter(applicant=applicant).select_related("institution"),
+            pk=pk,
+        )
+
+        # TRUE single-call verify:
+        v = BlockchainService.verify_certificate(_norm_hash(cert.file_hash)) if cert.file_hash else {}
+        info = self._tx_info(cert.file_hash) if cert.file_hash else {}
+
+        status_txt = "INVALID"
+        if _coerce_bool(v.get("exists")):
+            status_txt = "REVOKED" if _coerce_bool(v.get("revoked")) else "ACTIVE"
+
+        return Response({
+            "id": cert.id,
+            "title": cert.display_label,
+            "issuerName": getattr(cert.institution, "institution_name", None),
+            "issueDate": cert.issued_on,
+            "serial": cert.serial_number,
+            "nationalId": getattr(cert.applicant, "national_id_plain", None),
+
+            "status": status_txt,
+            "tx_hash": info.get("issuedTx"),
+            "block_number": info.get("issuedBlock"),
+            "revoke_tx_hash": info.get("revokeTx"),
+            "revoke_block_number": info.get("revokeBlock"),
+        }, status=200)
+
+    @extend_schema(
+        tags=["My Certificates"],
+        summary="Open my decrypted PDF (inline) after live on-chain check",
+        responses={200: {"content": {"application/pdf": {}}}, 410: {}, 404: {}},
     )
     @action(methods=["get"], detail=True, url_path="file", permission_classes=[IsAuthenticated])
     def file(self, request, pk=None):
-        applicant = _resolve_applicant(self.request.user)
+        applicant = _resolve_applicant(request.user)
         cert = get_object_or_404(
             Certificate.objects.filter(applicant=applicant),
             pk=pk,
@@ -411,33 +613,25 @@ class MyCertificateViewSet(
 
         if not cert.cid_enc:
             return err_500("missing_cid", "Encrypted file CID is missing.")
-        for f in ("enc_key_protected", "enc_nonce", "enc_tag"):
-            if not getattr(cert, f, None):
-                return err_500("missing_crypto_meta", f"Missing crypto meta: {f}")
+
+        # require ACTIVE on-chain (TRUE single-call):
+        v = BlockchainService.verify_certificate(_norm_hash(cert.file_hash)) if cert.file_hash else {}
+        if not (_coerce_bool(v.get("exists")) and not _coerce_bool(v.get("revoked"))):
+            return err_409("revoked_or_missing", "Certificate is not valid on-chain for viewing.")
 
         try:
             out = subprocess.check_output(
-                ["node", "backend_scripts/fetch_cid.js", cert.cid_enc],
-                text=True,
-                stderr=subprocess.STDOUT,
-                timeout=60,
-                env=os.environ.copy(),
+                ["node", "utils/fetch_cid.js", cert.cid_enc],
+                text=True, stderr=subprocess.STDOUT, timeout=60, env=os.environ.copy(),
             )
+            data = json.loads(out)
+            enc_bytes = base64.b64decode(data["bytes_b64"])
         except subprocess.CalledProcessError as e:
             return err_500("fetch_cid_failed", "Could not fetch encrypted file.", {"output": (e.output or "")[:400]})
         except subprocess.TimeoutExpired:
             return err_500("fetch_cid_timeout", "Timed out fetching encrypted file from storage.")
-        except FileNotFoundError:
-            return err_500("node_missing", "Node.js not installed or not in PATH.")
-
-        try:
-            data = json.loads(out)
-            enc_b64 = data.get("bytes_b64")
-            if not enc_b64:
-                return err_500("bad_storage_payload", "Storage returned no data.", {"raw": out[:400]})
-            enc_bytes = base64.b64decode(enc_b64)
         except Exception as e:
-            return err_500("parse_storage_payload_failed", "Unexpected storage response.", {"raw": out[:400], "err": str(e)})
+            return err_500("parse_storage_payload_failed", "Unexpected storage response.", {"err": str(e)})
 
         try:
             key = bytes.fromhex(cert.enc_key_protected)
@@ -447,8 +641,99 @@ class MyCertificateViewSet(
             pdf_bytes = cipher.decrypt_and_verify(enc_bytes, tag)
         except ValueError:
             return err_500("decryption_failed", "Decryption failed. Stored data may be corrupted.")
+
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = f'inline; filename="certificate_{cert.id}.pdf"'
+        return resp
+
+
+# ========================= Employer scope (router style) =========================
+
+@extend_schema_view(
+    retrieve=extend_schema(
+        tags=["Employer Certificates"],
+        summary="Get certificate details for employer (approved shares policy applies)",
+        responses={200: CertificateDetailSerializer, 404: {"description": "Not found"}},
+    ),
+)
+class EmployerCertificatesViewSet(
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    /api/employer/certificates/{id}/  (router-based)
+    Reuses CertificateDetailSerializer to expose applicant_national_id_plain and institution_name.
+    """
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    parser_classes = [JSONParser]
+    serializer_class = CertificateDetailSerializer
+    pagination_class = None  # detail only
+
+    def get_queryset(self):
+        # TODO: restrict to certificates shared/approved for this employer user
+        return Certificate.objects.select_related("applicant", "institution")
+
+    # include tx info in employer detail response
+    def retrieve(self, request, pk=None):
+        cert = get_object_or_404(self.get_queryset(), pk=pk)
+        data = CertificateDetailSerializer(cert).data
+        info = BlockchainService.get_transaction_info(_norm_hash(cert.file_hash)) or {}
+        data.update({
+            "tx_hash": info.get("revokeTx") or info.get("issuedTx"),
+            "block_number": info.get("revokeBlock") or info.get("issuedBlock"),
+            "issuedTx": info.get("issuedTx"),
+            "issuedBlock": info.get("issuedBlock"),
+            "revokeTx": info.get("revokeTx"),
+            "revokeBlock": info.get("revokeBlock"),
+        })
+        return Response(data, status=200)
+
+    @extend_schema(
+        tags=["Employer Certificates"],
+        summary="Most recent tx info (Issued/Revoked) for this certificate from chain",
+        responses={200: {"type": "object"}},
+    )
+    @action(methods=["get"], detail=True, url_path="tx-info", permission_classes=[IsAuthenticated])
+    def tx_info(self, request, pk=None):
+        cert = get_object_or_404(self.get_queryset(), pk=pk)
+        info = BlockchainService.get_transaction_info(_norm_hash(cert.file_hash)) or {}
+        return Response(info, status=200)
+
+    @extend_schema(
+        tags=["Employer Certificates"],
+        summary="Download (inline) the decrypted PDF (if access approved)",
+        responses={200: {"content": {"application/pdf": {}}}, 404: {"description": "Not found"}},
+    )
+    @action(methods=["get"], detail=True, url_path="file", permission_classes=[IsAuthenticated])
+    def file(self, request, pk=None):
+        cert = get_object_or_404(self.get_queryset(), pk=pk)
+
+        if not cert.cid_enc:
+            return err_500("missing_cid", "Encrypted file CID is missing.")
+
+        try:
+            out = subprocess.check_output(
+                ["node", "utils/fetch_cid.js", cert.cid_enc],
+                text=True, stderr=subprocess.STDOUT, timeout=60, env=os.environ.copy(),
+            )
+            data = json.loads(out)
+            enc_bytes = base64.b64decode(data["bytes_b64"])
+        except subprocess.CalledProcessError as e:
+            return err_500("fetch_cid_failed", "Could not fetch encrypted file.", {"output": (e.output or "")[:400]})
+        except subprocess.TimeoutExpired:
+            return err_500("fetch_cid_timeout", "Timed out fetching encrypted file from storage.")
         except Exception as e:
-            return err_500("decrypt_error", "Unexpected decrypt error.", {"err": str(e)})
+            return err_500("parse_storage_payload_failed", "Unexpected storage response.", {"err": str(e)})
+
+        try:
+            key = bytes.fromhex(cert.enc_key_protected)
+            nonce = bytes.fromhex(cert.enc_nonce)
+            tag = bytes.fromhex(cert.enc_tag)
+            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+            pdf_bytes = cipher.decrypt_and_verify(enc_bytes, tag)
+        except ValueError:
+            return err_500("decryption_failed", "Decryption failed. Stored data may be corrupted.")
 
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'inline; filename="certificate_{cert.id}.pdf"'
