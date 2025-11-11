@@ -3,7 +3,6 @@ import os, sys, json
 from web3 import Web3
 
 def load_abi(p):
-    import json
     with open(p, "r", encoding="utf-8") as f:
         d = json.load(f)
     return d.get("abi", d)
@@ -36,7 +35,6 @@ except Exception as e:
 acct   = w3.eth.account.from_key(KEY)
 sender = Web3.to_checksum_address(FROM) if FROM else acct.address
 
-# --- crucial: convert hex → bytes32 ---
 file_hash_hex = norm(sys.argv[1])
 try:
     file_hash_b32 = Web3.to_bytes(hexstr=file_hash_hex)
@@ -46,7 +44,6 @@ except Exception as e:
 
 fn = contract.functions.revokeCertificate(file_hash_b32)
 
-# build & send
 try:
     gas     = fn.estimate_gas({"from": sender})
     nonce   = w3.eth.get_transaction_count(sender)

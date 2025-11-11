@@ -10,6 +10,4 @@ router.register(r"signup", SignupViewSet, basename="signup")
 router.register(r"admin/accounts", AdminAccountsViewSet, basename="admin-accounts")
 router.register(r"password", PasswordViewSet, basename="password")
 
-urlpatterns = [
-    path("", include(router.urls)),
-]
+urlpatterns = [path("", include(router.urls))]

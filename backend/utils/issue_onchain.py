@@ -1,52 +1,65 @@
-# backend_scripts/issue_onchain.py
-import os, sys, json, pathlib
+#!/usr/bin/env python3
+import os, sys, json
 from web3 import Web3
-from dotenv import load_dotenv
 
-BACKEND_ROOT = pathlib.Path(__file__).resolve().parents[1]
-load_dotenv(BACKEND_ROOT / ".env")
+def load_abi(p):
+    with open(p, "r", encoding="utf-8") as f:
+        d = json.load(f)
+    return d.get("abi", d)
 
-RPC = os.environ["ETH_RPC_URL"]
-PK = os.environ["ISSUER_PRIVATE_KEY"].strip()
-ADDR = os.environ["CONTRACT_ADDRESS"].strip()
-ABI_PATH = os.environ["CERTIFICATE_ABI_PATH"].strip()
+def norm(h: str) -> str:
+    h = (h or "").strip().lower()
+    return h if h.startswith("0x") else "0x"+h
 
 if len(sys.argv) < 3:
-    raise SystemExit("usage: issue_onchain.py <applicant_hash_hex> <file_hash_hex>")
+    print(json.dumps({"error":"usage","message":"python issue_onchain.py 0x<applicant_hash> 0x<file_hash>"})); sys.exit(2)
 
-APPLICANT_HASH_HEX = sys.argv[1]  # "0x..." (64 hex chars after 0x)
-FILE_HASH_HEX      = sys.argv[2]
+RPC  = os.getenv("ETH_RPC_URL")
+ADDR = os.getenv("CONTRACT_ADDRESS")
+ABI  = os.getenv("CERTIFICATE_ABI_PATH")
+KEY  = os.getenv("PRIVATE_KEY")
+FROM = os.getenv("FROM_ADDRESS")
 
-# Basic validation
-for name, h in [("applicant_hash", APPLICANT_HASH_HEX), ("file_hash", FILE_HASH_HEX)]:
-    if not isinstance(h, str) or not h.startswith("0x") or len(h) != 66:
-        raise SystemExit(f"{name} must be a 0x-prefixed 32-byte hex string (length 66)")
-
-ABI_FILE = (BACKEND_ROOT / ABI_PATH).resolve()
-artifact = json.loads(ABI_FILE.read_text(encoding="utf-8"))
-ABI = artifact["abi"]
+if not all([RPC, ADDR, ABI, KEY]):
+    print(json.dumps({"error":"missing_env"})); sys.exit(1)
 
 w3 = Web3(Web3.HTTPProvider(RPC))
 if not w3.is_connected():
-    raise RuntimeError(f"Cannot connect to {RPC}")
+    print(json.dumps({"error":"rpc_unreachable"})); sys.exit(1)
 
-acct = w3.eth.account.from_key(PK)
-contract = w3.eth.contract(address=Web3.to_checksum_address(ADDR), abi=ABI)
+try:
+    contract = w3.eth.contract(address=Web3.to_checksum_address(ADDR), abi=load_abi(ABI))
+except Exception as e:
+    print(json.dumps({"error":"bad_contract","detail":str(e)})); sys.exit(1)
 
-applicant_b32 = Web3.to_bytes(hexstr=APPLICANT_HASH_HEX)
-file_b32      = Web3.to_bytes(hexstr=FILE_HASH_HEX)
+acct   = w3.eth.account.from_key(KEY)
+sender = Web3.to_checksum_address(FROM) if FROM else acct.address
 
-tx = contract.functions.issueCertificate(applicant_b32, file_b32).build_transaction({
-    "from": acct.address,
-    "nonce": w3.eth.get_transaction_count(acct.address),
-    "gas": 600000,
-    "maxPriorityFeePerGas": 0,
-    "maxFeePerGas": w3.to_wei(1, "gwei"),
-    "chainId": w3.eth.chain_id,
-})
+app_hash_hex  = norm(sys.argv[1])
+file_hash_hex = norm(sys.argv[2])
 
-signed = acct.sign_transaction(tx)
-tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
-rcpt = w3.eth.wait_for_transaction_receipt(tx_hash)
+try:
+    app_hash_b32  = Web3.to_bytes(hexstr=app_hash_hex)
+    file_hash_b32 = Web3.to_bytes(hexstr=file_hash_hex)
+    if len(app_hash_b32) != 32 or len(file_hash_b32) != 32:
+        raise ValueError("hash != 32 bytes")
+except Exception as e:
+    print(json.dumps({"error":"bad_hash","detail":str(e)})); sys.exit(1)
 
-print(json.dumps({"tx": tx_hash.hex(), "block": rcpt.blockNumber}))
+fn = contract.functions.issueCertificate(app_hash_b32, file_hash_b32)
+
+try:
+    gas     = fn.estimate_gas({"from": sender})
+    nonce   = w3.eth.get_transaction_count(sender)
+    tx      = fn.build_transaction({
+        "from": sender,
+        "nonce": nonce,
+        "gas": gas,
+        "gasPrice": w3.eth.gas_price
+    })
+    signed  = w3.eth.account.sign_transaction(tx, private_key=KEY)
+    tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+    rcpt    = w3.eth.wait_for_transaction_receipt(tx_hash)
+    print(json.dumps({"tx": tx_hash.hex(), "block": int(rcpt.blockNumber), "status": int(rcpt.status)}))
+except Exception as e:
+    print(json.dumps({"error":"send_failed","detail":str(e)})); sys.exit(1)

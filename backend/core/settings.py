@@ -128,13 +128,6 @@ SPECTACULAR_SETTINGS = {
             "JWTAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
         }
     },
-    "TAGS": [
-        {"name": "Accounts", "description": "Authentication & account management."},
-        {"name": "Certificates", "description": "Issuing, listing, revoking certificates."},
-        {"name": "Access – Employer", "description": "Employer creates and views requests."},
-        {"name": "Access – Applicant", "description": "Applicant reviews and approves/declines."},
-        {"name": "My Certificates", "description": "Applicant’s own certificates."},
-    ],
 }
 
 # ------------------------------------------------------------------ JWT

@@ -1,10 +1,9 @@
-"""
-Serializers: request/response contracts + validation.
-"""
+"""Serializers: request/response contracts + validation."""
 from django.db import transaction
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.utils.encoding import force_bytes, smart_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError, AuthenticationFailed
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -18,8 +17,10 @@ MAX_PROOF_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
 class LoginSerializer(serializers.Serializer):
+    """Login by email OR applicant national ID + password. Blocks PENDING employers/institutions."""
     identifier = serializers.CharField()
     password = serializers.CharField(write_only=True)
+
     access = serializers.CharField(read_only=True)
     refresh = serializers.CharField(read_only=True)
     user = serializers.DictField(read_only=True)
@@ -29,32 +30,31 @@ class LoginSerializer(serializers.Serializer):
         password = attrs.get("password", "")
         user = None
 
+        # Resolve user by email or applicant national ID
         if is_email(ident):
-            try:
-                user = User.objects.get(email__iexact=ident)
-            except User.DoesNotExist:
-                pass
+            user = User.objects.filter(email__iexact=ident).first()
         else:
             nid = normalize_national_id(ident)
             if is_national_id_10_digits(nid):
-                try:
-                    applicant = Applicant.objects.select_related("user").get(national_id_plain=nid)
-                    user = applicant.user
-                except Applicant.DoesNotExist:
-                    pass
+                a = Applicant.objects.select_related("user").filter(national_id_plain=nid).first()
+                user = getattr(a, "user", None)
 
         if not user or not user.check_password(password):
             raise AuthenticationFailed("Invalid credentials")
 
-        if user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
-            if user.employer.status != Employer.Status.APPROVED:
-                raise AuthenticationFailed("Your employer account is not approved yet.")
-        if user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
-            if user.institution.status != Institution.Status.APPROVED:
-                raise AuthenticationFailed("Your institution account is not approved yet.")
+        # Enforce approval before login for employers and institutions
+        if user.role == User.Roles.EMPLOYER:
+            e = getattr(user, "employer", None)
+            if not e or e.status != Employer.Status.APPROVED:
+                raise AuthenticationFailed("Employer account is not approved yet.")
+        if user.role == User.Roles.INSTITUTION:
+            i = getattr(user, "institution", None)
+            if not i or i.status != Institution.Status.APPROVED:
+                raise AuthenticationFailed("Institution account is not approved yet.")
 
         refresh = RefreshToken.for_user(user)
 
+        # Minimal profile payload per role
         profile = {}
         if user.role == User.Roles.APPLICANT and hasattr(user, "applicant"):
             a = user.applicant
@@ -95,6 +95,7 @@ class MeSerializer(serializers.Serializer):
 
 
 class ApplicantSignupSerializer(serializers.Serializer):
+    """Create Applicant (saves plain ID and keccak hash)."""
     full_name = serializers.CharField(max_length=150)
     email = serializers.EmailField()
     national_id = serializers.CharField()
@@ -142,6 +143,7 @@ class ApplicantSignupSerializer(serializers.Serializer):
 
 
 class EmployerSignupSerializer(serializers.Serializer):
+    """Submit Employer for approval."""
     full_name = serializers.CharField(max_length=150)
     work_email = serializers.EmailField()
     company_name = serializers.CharField(max_length=200)
@@ -194,6 +196,7 @@ class EmployerSignupSerializer(serializers.Serializer):
 
 
 class InstitutionSignupSerializer(serializers.Serializer):
+    """Submit Institution for approval."""
     institution_name = serializers.CharField(max_length=200)
     official_email = serializers.EmailField()
     department = serializers.CharField(max_length=150, allow_blank=True, required=False)
@@ -235,11 +238,13 @@ class InstitutionSignupSerializer(serializers.Serializer):
 
 
 class AdminStatusUpdateSerializer(serializers.Serializer):
+    """Moderation payload."""
     status = serializers.ChoiceField(choices=["APPROVED", "REJECTED"])
     notes = serializers.CharField(allow_blank=True, required=False)
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):
+    """Request password reset link."""
     email = serializers.EmailField()
 
     def validate_email(self, value):
@@ -263,6 +268,7 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
+    """Reset password with uid+token."""
     uid = serializers.CharField()
     token = serializers.CharField()
     new_password = serializers.CharField(min_length=8, write_only=True)
@@ -274,9 +280,9 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
             uid = smart_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(pk=uid)
         except Exception:
-            raise serializers.ValidationError({"uid": "Invalid UID"})
+            raise ValidationError({"uid": "Invalid UID"})
         if not PasswordResetTokenGenerator().check_token(user, token):
-            raise serializers.ValidationError({"token": "Invalid or expired token"})
+            raise ValidationError({"token": "Invalid or expired token"})
         attrs["user"] = user
         return attrs
 

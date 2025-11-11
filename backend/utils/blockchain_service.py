@@ -24,11 +24,12 @@ def _as_bool(x) -> bool:
 
 
 class BlockchainService:
-    """Blockchain certificate operations (read-only). Single + Batch + tx-info."""
-    _UTILS_DIR         = Path(__file__).resolve().parent
-    _VERIFY_SINGLE     = _UTILS_DIR / "verify_certificate.py"
-    _VERIFY_BATCH      = _UTILS_DIR / "verify_certificates_batch.py"
-    _GET_TX_INFO       = _UTILS_DIR / "get_transaction_info.py"
+    """Read-only blockchain ops: single/batch verify + tx-info."""
+
+    _UTILS_DIR     = Path(__file__).resolve().parent
+    _VERIFY_SINGLE = _UTILS_DIR / "verify_certificate.py"
+    _VERIFY_BATCH  = _UTILS_DIR / "verify_certificates_batch.py"
+    _GET_TX_INFO   = _UTILS_DIR / "get_transaction_info.py"
 
     @staticmethod
     def _run_json(cmd: List[str], timeout: int) -> Json:
@@ -52,19 +53,9 @@ class BlockchainService:
         except Exception as e:
             return {"error": str(e)}
 
-    # ---------------- single verify (NEW) ----------------
     @staticmethod
     def verify_certificate(file_hash: str) -> Dict:
-        """
-        Verify a single certificate (more efficient than batch for detail views).
-        Returns:
-        {
-          "exists": bool,
-          "revoked": bool,
-          "applicantIdHash": "0x..." or None,
-          "issuedAt": int
-        }
-        """
+        """Single verify (cheap path for detail views)."""
         fh = _norm(file_hash)
         if not fh or not BlockchainService._VERIFY_SINGLE.exists():
             return {"exists": False, "revoked": True}
@@ -73,7 +64,6 @@ class BlockchainService:
             [sys.executable, str(BlockchainService._VERIFY_SINGLE), fh],
             timeout=30,
         )
-
         if isinstance(raw, str):
             try:
                 raw = json.loads(raw)
@@ -90,16 +80,9 @@ class BlockchainService:
             "issuedAt": raw.get("issuedAt", 0),
         }
 
-    # ---------------- batch verify ----------------
     @staticmethod
     def verify_certificates_batch(file_hashes: List[str]) -> Dict[str, Dict]:
-        """
-        Verify multiple certificates in one call (for list views).
-        Returns mapping:
-        {
-          "<0xhash>": {"fileHash":"<0xhash>","exists":bool,"revoked":bool}
-        }
-        """
+        """Batch verify (list views)."""
         file_hashes = [_norm(h) for h in (file_hashes or []) if h]
         if not file_hashes:
             return {}
@@ -113,7 +96,6 @@ class BlockchainService:
 
         result: Dict[str, Dict] = {}
 
-        # Dict form: {"0x..": {...}}
         if isinstance(raw, dict):
             for k, v in raw.items():
                 fh = _norm(str(k))
@@ -127,7 +109,6 @@ class BlockchainService:
                 }
             return result
 
-        # List form: [{"fileHash": "...", "exists":..., "revoked":...}, ...]
         if isinstance(raw, list):
             for it in raw:
                 it = {} if it is None else (json.loads(it) if isinstance(it, str) else it)
@@ -143,15 +124,11 @@ class BlockchainService:
                 }
             return result
 
-        # Unknown shape → mark invalid
         return {h: {"fileHash": h, "exists": False, "revoked": True} for h in file_hashes}
 
-    # ---------------- tx-info ----------------
     @staticmethod
     def get_transaction_info(file_hash: str) -> Dict:
-        """
-        Returns {issuedTx, issuedBlock, revokeTx, revokeBlock} (keys may be None).
-        """
+        """Return {issuedTx, issuedBlock, revokeTx, revokeBlock} (None if missing)."""
         fh = _norm(file_hash)
         if not fh or not BlockchainService._GET_TX_INFO.exists():
             return {}

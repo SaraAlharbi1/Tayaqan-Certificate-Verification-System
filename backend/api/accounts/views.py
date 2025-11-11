@@ -1,7 +1,5 @@
 # backend/api/accounts/views.py
-"""
-HTTP endpoints for Accounts (router + ViewSets, no APIView).
-"""
+"""HTTP endpoints for Accounts (router + ViewSets)."""
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.core.mail import send_mail
@@ -54,13 +52,8 @@ from .serializers import (
     ),
 )
 class AuthViewSet(viewsets.GenericViewSet):
-    """
-    Routes:
-      POST /api/auth/login/
-      POST /api/auth/refresh/
-      GET  /api/auth/me/
-    """
-    queryset = User.objects.none()  # not used, but required by GenericViewSet
+    """Routes: POST /auth/login, POST /auth/refresh, GET /auth/me."""
+    queryset = User.objects.none()
     permission_classes = [AllowAny]
 
     @action(methods=["post"], detail=False, url_path="login", permission_classes=[AllowAny])
@@ -77,17 +70,14 @@ class AuthViewSet(viewsets.GenericViewSet):
 
     @action(methods=["get"], detail=False, url_path="me", permission_classes=[IsAuthenticated])
     def me(self, request):
+        """Return current user + role profile; include 'status' for moderated roles."""
         user: User = request.user
         profile = {}
         status_text = None
 
         if user.role == User.Roles.APPLICANT and hasattr(user, "applicant"):
             a = user.applicant
-            profile = {
-                "full_name": a.full_name,
-                "national_id": a.national_id_plain,
-                "phone": a.phone,
-            }
+            profile = {"full_name": a.full_name, "national_id": a.national_id_plain, "phone": a.phone}
         elif user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
             e = user.employer
             profile = {
@@ -106,12 +96,7 @@ class AuthViewSet(viewsets.GenericViewSet):
             }
             status_text = i.status
 
-        payload = {
-            "id": user.id,
-            "email": user.email,
-            "role": user.role,
-            "profile": profile,
-        }
+        payload = {"id": user.id, "email": user.email, "role": user.role, "profile": profile}
         if status_text:
             payload["status"] = status_text
 
@@ -140,12 +125,7 @@ class AuthViewSet(viewsets.GenericViewSet):
     ),
 )
 class SignupViewSet(viewsets.GenericViewSet):
-    """
-    Routes:
-      POST /api/signup/applicant/
-      POST /api/signup/employer/
-      POST /api/signup/institution/
-    """
+    """Routes: POST /signup/applicant|employer|institution."""
     queryset = User.objects.none()
     permission_classes = [AllowAny]
 
@@ -156,24 +136,14 @@ class SignupViewSet(viewsets.GenericViewSet):
         ser.create(ser.validated_data)
         return Response({"message": "Applicant created. You can sign in now."}, status=status.HTTP_201_CREATED)
 
-    @action(
-        methods=["post"],
-        detail=False,
-        url_path="employer",
-        parser_classes=[MultiPartParser, FormParser],
-    )
+    @action(methods=["post"], detail=False, url_path="employer", parser_classes=[MultiPartParser, FormParser])
     def employer(self, request):
         ser = EmployerSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
         return Response({"message": "Employer submitted. Await approval.", "status": "PENDING"}, status=201)
 
-    @action(
-        methods=["post"],
-        detail=False,
-        url_path="institution",
-        parser_classes=[MultiPartParser, FormParser],
-    )
+    @action(methods=["post"], detail=False, url_path="institution", parser_classes=[MultiPartParser, FormParser])
     def institution(self, request):
         ser = InstitutionSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -203,11 +173,7 @@ class SignupViewSet(viewsets.GenericViewSet):
     ),
 )
 class AdminAccountsViewSet(viewsets.GenericViewSet):
-    """
-    Routes:
-      GET   /api/admin/accounts/pending/?role=employer|institution
-      PATCH /api/admin/accounts/{user_id}/status/
-    """
+    """Routes: GET /admin/accounts/pending, PATCH /admin/accounts/{user_id}/status."""
     queryset = User.objects.all()
     permission_classes = [IsAuthenticated, IsAdminUser]
 
@@ -230,9 +196,7 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
 
     @action(methods=["patch"], detail=True, url_path="status")
     def status(self, request, pk=None):
-        """
-        Update Employer/Institution status and email them using HTML template only.
-        """
+        """Update Employer/Institution status and email them (HTML + plain fallback)."""
         ser = AdminStatusUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         status_choice = ser.validated_data["status"]
@@ -242,7 +206,7 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
         frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
         dashboard_url = f"{frontend}/"
 
-        # helper to send HTML-only (plain text derived via strip_tags)
+        # helper to send HTML + plain (and don't hide failures)
         def send_status_email(to_email: str, name: str, kind: str):
             ctx = {
                 "name": name,
@@ -258,7 +222,7 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
                 message=text,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "Tayaqan <no-reply@tayaqan.local>"),
                 recipient_list=[to_email],
-                fail_silently=True,
+                fail_silently=False,  # surface email errors
                 html_message=html,
             )
 
@@ -267,11 +231,9 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
             e.status = status_choice
             e.status_notes = notes
             e.save(update_fields=["status", "status_notes"])
-
             name = (e.full_name or "").strip() or user.email.split("@")[0]
             if user.email:
                 send_status_email(user.email, name, "Employer")
-
             return Response({"id": user.id, "role": "EMPLOYER", "status": e.status}, status=200)
 
         if user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
@@ -279,11 +241,9 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
             i.status = status_choice
             i.status_notes = notes
             i.save(update_fields=["status", "status_notes"])
-
             name = (getattr(i, "contact_name", "") or "").strip() or user.email.split("@")[0]
             if user.email:
                 send_status_email(user.email, name, "Institution")
-
             return Response({"id": user.id, "role": "INSTITUTION", "status": i.status}, status=200)
 
         return Response({"message": "No moderatable profile for this user."}, status=400)
@@ -291,23 +251,11 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
 
 # ---------- Password reset ----------
 @extend_schema_view(
-    request_link=extend_schema(
-        tags=["Accounts"],
-        summary="Request Password Reset",
-        request=PasswordResetRequestSerializer,
-    ),
-    confirm=extend_schema(
-        tags=["Accounts"],
-        summary="Confirm Password Reset",
-        request=PasswordResetConfirmSerializer,
-    ),
+    request_link=extend_schema(tags=["Accounts"], summary="Request Password Reset", request=PasswordResetRequestSerializer),
+    confirm=extend_schema(tags=["Accounts"], summary="Confirm Password Reset", request=PasswordResetConfirmSerializer),
 )
 class PasswordViewSet(viewsets.GenericViewSet):
-    """
-    Routes:
-      POST /api/password/request/
-      POST /api/password/confirm/
-    """
+    """Routes: POST /password/request, POST /password/confirm."""
     queryset = User.objects.none()
 
     @action(methods=["post"], detail=False, url_path="request", permission_classes=[AllowAny])
