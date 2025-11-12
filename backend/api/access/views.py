@@ -557,7 +557,6 @@ class EmployerCertificateViewSet(
 
         tx = _tx_info_onchain(cert.file_hash)
         status_txt = "REVOKED" if v.get("revoked") else "ACTIVE"
-        http = 410 if status_txt == "REVOKED" else 200
 
         return Response(
             {
@@ -571,9 +570,11 @@ class EmployerCertificateViewSet(
                 "issuedBlock": tx.get("issuedBlock"),
                 "revokeTx": tx.get("revokeTx"),
                 "revokeBlock": tx.get("revokeBlock"),
+                "applicant_national_id_plain": getattr(cert.applicant, "national_id_plain", None),
             },
-            status=http,
+            status=200,
         )
+
 
     @extend_schema(
         tags=["3. Access"],
@@ -635,4 +636,3 @@ class EmployerCertificateViewSet(
             return HttpResponse("Decryption failed: corrupted data or bad key.", status=500)
         except Exception as e:
             return HttpResponse(f"Decryption error: {e}", status=500)
-

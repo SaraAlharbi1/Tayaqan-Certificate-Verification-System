@@ -76,6 +76,73 @@ const pickApplicantNID = (d: BackendCert) => {
   return v !== undefined && v !== null && String(v).trim() !== "" ? String(v) : "—";
 };
 
+/* Small UI helpers */
+function Badge({ children, className = "" }: { children: any; className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${className}`}>
+      {children}
+    </span>
+  );
+}
+
+/* Confirm Revoke Modal */
+function ConfirmRevokeModal({
+  open,
+  title,
+  applicant,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  applicant: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+      <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-200">
+        <div className="p-5">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M4.93 4.93l14.14 14.14M12 2a10 10 0 100 20 10 10 0 000-20z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Revoke certificate?</h3>
+          </div>
+
+          <div className="mt-3 text-sm text-gray-600">
+            <p className="font-medium text-gray-800">{title || "Untitled Certificate"}</p>
+            <p className="mt-1">Applicant: <span className="font-medium">{applicant}</span></p>
+            <p className="mt-3 text-gray-500">
+              This action will mark the certificate as <span className="font-semibold text-red-600">REVOKED</span> on-chain.
+              It cannot be undone.
+            </p>
+          </div>
+
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <button
+              onClick={onCancel}
+              className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700"
+            >
+              Revoke
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* =======================================================
    Issued Certificates (Institution)
 ======================================================= */
@@ -91,6 +158,13 @@ export default function IssuedCertificates() {
   const [loading, setLoading] = useState(true);
   const [statusLoading, setStatusLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // flash message (success/error after revoke)
+  const [flash, setFlash] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // confirm modal state
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmRow, setConfirmRow] = useState<Row | null>(null);
 
   // pagination
   const [page, setPage] = useState(1);
@@ -217,9 +291,32 @@ export default function IssuedCertificates() {
         method: "POST",
       });
       await verifyOnChain([row]);
+      setFlash({
+        type: "success",
+        text: `Certificate "${row.title}" for ${row.applicant} has been revoked.`,
+      });
     } catch (e: any) {
-      alert(e?.userMessage || e?.message || "Failed to revoke.");
+      setFlash({
+        type: "error",
+        text: e?.userMessage || e?.message || "Failed to revoke.",
+      });
+    } finally {
+      setTimeout(() => setFlash(null), 4500);
     }
+  };
+
+  const openConfirm = (row: Row) => {
+    setConfirmRow(row);
+    setConfirmOpen(true);
+  };
+  const closeConfirm = () => {
+    setConfirmOpen(false);
+    setConfirmRow(null);
+  };
+  const confirmAndRevoke = async () => {
+    if (!confirmRow) return;
+    await onRevoke(confirmRow);
+    closeConfirm();
   };
 
   /* ------------------ Effect: fetch on change ------------------ */
@@ -260,6 +357,39 @@ export default function IssuedCertificates() {
           </h1>
           <p className="mt-1 text-gray-500">All certificates your institution issued</p>
         </div>
+
+        {/* flash message */}
+        {flash && (
+          <div
+            role="alert"
+            className={`mb-6 border rounded-xl p-4 text-sm font-medium flex items-start justify-between gap-3 ${
+              flash.type === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                : "bg-red-50 border-red-200 text-red-700"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {flash.type === "success" ? (
+                <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+              <span>{flash.text}</span>
+            </div>
+            <button
+              onClick={() => setFlash(null)}
+              className="shrink-0 inline-flex items-center justify-center rounded-md px-2 py-1 text-xs hover:bg-black/5 transition"
+              aria-label="Dismiss"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {err && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
@@ -336,11 +466,7 @@ export default function IssuedCertificates() {
           {/* Status bar */}
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl">
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${
-                  loading ? "bg-amber-500" : "bg-emerald-500"
-                }`}
-              />
+              <span className={`inline-block h-2 w-2 rounded-full ${loading ? "bg-amber-500" : "bg-emerald-500"}`} />
               <span className="text-sm font-medium text-slate-700">
                 {loading ? "Loading..." : `${filteredData.length} certificates`}
               </span>
@@ -439,12 +565,7 @@ export default function IssuedCertificates() {
                           <td className="px-4 py-3">
                             {isActive ? (
                               <button
-                                onClick={() => {
-                                  const ok = window.confirm(
-                                    `Revoke "${r.title}"?\nApplicant: ${r.applicant}`
-                                  );
-                                  if (ok) onRevoke(r);
-                                }}
+                                onClick={() => openConfirm(r)}
                                 className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-red-600 text-red-600 hover:bg-red-600 hover:text-white text-xs font-medium rounded-md transition-colors"
                               >
                                 Revoke
@@ -457,7 +578,7 @@ export default function IssuedCertificates() {
                           {/* Status */}
                           <td className="px-4 py-3">
                             {isChecking && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-50 text-gray-600">
+                              <Badge className="bg-gray-50 text-gray-600">
                                 <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                   <path
@@ -467,25 +588,25 @@ export default function IssuedCertificates() {
                                   />
                                 </svg>
                                 Checking...
-                              </span>
+                              </Badge>
                             )}
                             {isActive && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700">
+                              <Badge className="bg-emerald-50 text-emerald-700">
                                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                                 ACTIVE
-                              </span>
+                              </Badge>
                             )}
                             {isRevoked && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-700">
+                              <Badge className="bg-red-50 text-red-700">
                                 <span className="h-2 w-2 rounded-full bg-red-500" />
                                 REVOKED
-                              </span>
+                              </Badge>
                             )}
                             {isInvalid && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700">
+                              <Badge className="bg-amber-50 text-amber-700">
                                 <span className="h-2 w-2 rounded-full bg-amber-500" />
                                 INVALID
-                              </span>
+                              </Badge>
                             )}
                           </td>
                         </tr>
@@ -547,6 +668,15 @@ export default function IssuedCertificates() {
           </div>
         </div>
       </div>
+
+      {/* Revoke modal */}
+      <ConfirmRevokeModal
+        open={confirmOpen}
+        title={confirmRow?.title ?? ""}
+        applicant={confirmRow?.applicant ?? ""}
+        onCancel={closeConfirm}
+        onConfirm={confirmAndRevoke}
+      />
     </section>
   );
 }

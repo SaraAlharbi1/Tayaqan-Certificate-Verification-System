@@ -11,7 +11,7 @@ type CertDetail = {
   issued_on?: string | null;          // YYYY-MM-DD
   serial_number?: string | null;
 
-  // NEW: applicant national id (like other pages)
+  // applicant national id
   applicant_national_id?: string | null;
 
   status?: string | null;             // "ACTIVE" | "REVOKED" | ...
@@ -44,6 +44,15 @@ function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () =
 
 const ETHERSCAN_BASE = "https://sepolia.etherscan.io";
 
+/* ---- helpers to always link tx/block, even if hash is missing 0x ---- */
+const normalizeTx = (h?: string | null) => {
+  if (!h) return null;
+  const s = h.startsWith("0x") ? h.slice(2) : h;
+  return /^[0-9a-fA-F]{64}$/.test(s) ? ("0x" + s.toLowerCase()) : null;
+};
+const txUrl = (tx?: string | null) => (tx ? `${ETHERSCAN_BASE}/tx/${tx}` : null);
+const blockUrl = (n?: number | null) => (typeof n === "number" ? `${ETHERSCAN_BASE}/block/${n}` : null);
+
 /* ----------------------------- Page ----------------------------- */
 export default function CertificateDetailsPage() {
   const { certificateId = "" } = useParams<{ certificateId: string }>();
@@ -57,37 +66,46 @@ export default function CertificateDetailsPage() {
   const [loading, setLoading] = useState(true);
 
   // normalize backend → UI (cover common keys)
-  const mapDetail = (r: any): CertDetail => ({
-    id: r.id ?? certificateId,
-    title: r.title ?? r.display_label ?? `Certificate #${certificateId}`,
-    issuer:
-      r.issuer ??
-      r.issuerName ??
-      r.issuer_name ??
-      r.institution_name ??
-      r.institution?.name ??
-      r.institution ??
-      "—",
-    issued_on: r.issued_on ?? r.issueDate ?? null,
-    serial_number: r.serial_number ?? r.serial ?? null,
+  const mapDetail = (r: any): CertDetail => {
+    // derive a status if backend omitted it
+    const issuedTxAny = r.issuedTx ?? r.tx_hash ?? r.txHash ?? null;
+    const revokeTxAny = r.revokeTx ?? r.revoke_tx_hash ?? null;
+    const derivedStatus =
+      r.status ??
+      (revokeTxAny ? "REVOKED" : issuedTxAny ? "ACTIVE" : null);
 
-    // NEW: applicant national id fallbacks (like other pages)
-    applicant_national_id:
-      r.applicant_national_id_plain ??
-      r.applicant_national_id ??
-      r.applicant_id ?? // some employer endpoints return "applicant_id" (national id) in lists/details :contentReference[oaicite:0]{index=0}
-      r.applicant?.national_id_plain ??
-      r.applicant?.national_id ??
-      null,
+    return {
+      id: r.id ?? certificateId,
+      title: r.title ?? r.display_label ?? `Certificate #${certificateId}`,
+      issuer:
+        r.issuer ??
+        r.issuerName ??
+        r.issuer_name ??
+        r.institution_name ??
+        r.institution?.name ??
+        r.institution ??
+        "—",
+      issued_on: r.issued_on ?? r.issueDate ?? null,
+      serial_number: r.serial_number ?? r.serial ?? null,
 
-    status: r.status ?? (r.is_revoked === true ? "REVOKED" : r.is_revoked === false ? "ACTIVE" : null),
+      // applicant national id fallbacks
+      applicant_national_id:
+         r.national_id_plain ??
+        r.applicant_national_id ??
+        r.applicant_id ??
+        r.applicant?.national_id_plain ??
+        r.applicant?.national_id ??
+        null,
 
-    // accept both old and new backend keys
-    tx_hash: r.issuedTx ?? r.tx_hash ?? r.txHash ?? null,
-    block_number: r.issuedBlock ?? r.block_number ?? r.blockNumber ?? null,
-    revoke_tx_hash: r.revokeTx ?? r.revoke_tx_hash ?? null,
-    revoke_block_number: r.revokeBlock ?? r.revoke_block_number ?? null,
-  });
+      status: derivedStatus,
+
+      // accept both old and new backend keys
+      tx_hash: r.issuedTx ?? r.tx_hash ?? r.txHash ?? null,
+      block_number: r.issuedBlock ?? r.block_number ?? r.blockNumber ?? null,
+      revoke_tx_hash: r.revokeTx ?? r.revoke_tx_hash ?? null,
+      revoke_block_number: r.revokeBlock ?? r.revoke_block_number ?? null,
+    };
+  };
 
   useEffect(() => {
     let cancel = false;
@@ -181,6 +199,11 @@ export default function CertificateDetailsPage() {
   const txToShow = isRevoked ? cert.revoke_tx_hash : cert.tx_hash;
   const blockToShow = isRevoked ? cert.revoke_block_number : cert.block_number;
 
+  // normalized for links
+  const txNorm = normalizeTx(txToShow);
+  const txHref = txUrl(txNorm);
+  const blockHref = blockUrl(blockToShow);
+
   return (
     <section className="pt-0 pb-6">
       <div className="auth-wrap">
@@ -216,7 +239,7 @@ export default function CertificateDetailsPage() {
 
           {/* Body */}
           <div className="p-6 md:p-8">
-            {/* Title + Issuer + National ID (NEW) */}
+            {/* Title + Issuer + National ID */}
             <div className="mb-5 pb-5 border-b border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">{cert.title || "Untitled Certificate"}</h2>
 
@@ -267,14 +290,14 @@ export default function CertificateDetailsPage() {
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     {isRevoked ? "Revocation Transaction" : "Issuance Transaction"}
                   </label>
-                  {txToShow && /^0x[0-9a-fA-F]{10,}$/.test(txToShow) ? (
+                  {txHref ? (
                     <a
-                      href={`${ETHERSCAN_BASE}/tx/${txToShow}`}
+                      href={txHref}
                       target="_blank"
                       rel="noreferrer"
                       className="font-mono text-sm text-indigo-600 hover:text-indigo-800 hover:underline break-all inline-flex items-center gap-1 group"
                     >
-                      {txToShow}
+                      {txNorm}
                       <svg className="w-3 h-3 flex-shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                       </svg>
@@ -289,9 +312,9 @@ export default function CertificateDetailsPage() {
                     {isRevoked ? "Revocation Block" : "Issuance Block"}
                   </label>
                   <p className="text-base font-semibold text-gray-900">
-                    {blockToShow != null ? (
+                    {blockHref ? (
                       <a
-                        href={`${ETHERSCAN_BASE}/block/${blockToShow}`}
+                        href={blockHref}
                         target="_blank"
                         rel="noreferrer"
                         className="font-mono text-sm text-indigo-600 hover:text-indigo-800 hover:underline break-all"

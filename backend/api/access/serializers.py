@@ -1,5 +1,6 @@
 # backend/api/access/serializers.py
 """Serializers for access requests and approvals."""
+
 from django.db import transaction
 from rest_framework import serializers
 
@@ -10,27 +11,50 @@ from .models import AccessRequest, AccessShare
 
 
 class AccessRequestSerializer(serializers.ModelSerializer):
-    """List/detail rows shown in the Access Requests table."""
+    """
+    Access request row shown in tables.
+
+    Canonical fields:
+      - employer_name: company name of the requesting employer
+      - applicant_name: full name of the applicant
+      - national_id_plain: applicant’s national ID (display-only)
+
+    Compatibility aliases (avoid frontend changes):
+      - company_name: alias for employer_name
+      - applicant_id: alias for national_id_plain
+    """
+
+    # Canonical
     employer_name = serializers.CharField(source="employer.company_name", read_only=True)
     applicant_name = serializers.CharField(source="applicant.full_name", read_only=True)
-    # >>> THIS is the National ID (not DB id)
     national_id_plain = serializers.CharField(source="applicant.national_id_plain", read_only=True)
+
+    # Aliases (keep UI stable)
+    company_name = serializers.CharField(source="employer.company_name", read_only=True)
+    applicant_id = serializers.CharField(source="applicant.national_id_plain", read_only=True)
 
     class Meta:
         model = AccessRequest
         fields = [
-            "id",                # request id (keep if you show it anywhere)
+            "id",
             "status",
             "created_at",
             "decided_at",
+            # canonical
             "employer_name",
             "applicant_name",
-            "national_id_plain",  # <- applicant’s National ID
+            "national_id_plain",
+            # aliases
+            "company_name",
+            "applicant_id",
         ]
 
 
 class AccessRequestCreateSerializer(serializers.Serializer):
-    """Employer creates request by applicant national ID."""
+    """
+    Employer creates a request by providing the applicant’s national ID.
+    Validates employer status and the applicant’s existence.
+    """
     applicant_national_id = serializers.CharField()
 
     def validate(self, attrs):
@@ -56,7 +80,7 @@ class AccessRequestCreateSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated):
-        # unique constraint will block duplicate pending requests
+        # Unique DB constraint prevents duplicate pending requests.
         return AccessRequest.objects.create(
             employer=validated["employer"],
             applicant=validated["applicant"],
@@ -64,14 +88,16 @@ class AccessRequestCreateSerializer(serializers.Serializer):
 
 
 class AccessApproveSerializer(serializers.Serializer):
-    """Applicant approves and selects certificates to share."""
+    """
+    Applicant approves a request by selecting certificate IDs.
+    Input is de-duplicated while preserving order.
+    """
     certificate_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
     )
 
     def validate_certificate_ids(self, ids):
-        # de-dup and keep order
         seen, out = set(), []
         for i in ids:
             if i not in seen:
@@ -81,7 +107,10 @@ class AccessApproveSerializer(serializers.Serializer):
 
 
 class AccessShareSerializer(serializers.ModelSerializer):
-    """Returned after approval."""
+    """
+    A single share created after approval.
+    Provides minimal certificate display fields for lists.
+    """
     file_hash = serializers.CharField(source="certificate.file_hash", read_only=True)
     title = serializers.CharField(source="certificate.display_label", read_only=True)
     issued_on = serializers.DateField(source="certificate.issued_on", read_only=True)

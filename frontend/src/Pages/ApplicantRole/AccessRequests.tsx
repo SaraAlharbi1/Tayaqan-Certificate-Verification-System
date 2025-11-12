@@ -9,7 +9,9 @@ type AccessReq = {
   status: "PENDING" | "APPROVED" | "DECLINED";
   created_at: string;
   company?: string | null;
+  company_name?: string | null;
   applicant_id?: string | null;
+  national_id_plain?: string | null;
 };
 
 type Paginated<T> = {
@@ -87,8 +89,8 @@ export default function AccessRequests() {
 
     if (!q) return result;
     return result.filter((r) => {
-      const company = (r.company || "").toLowerCase();
-      const applicantId = (r.applicant_id || "").toLowerCase();
+      const company = (r.company || r.company_name || "").toLowerCase();
+      const applicantId = (r.applicant_id || r.national_id_plain || "").toLowerCase();
       const statusText = r.status.toLowerCase();
       const date = new Date(r.created_at).toLocaleDateString().toLowerCase();
       return company.includes(q) || applicantId.includes(q) || statusText.includes(q) || date.includes(q);
@@ -236,13 +238,11 @@ export default function AccessRequests() {
                     <th className="px-4 py-3 text-left font-semibold">Applicant ID</th>
                     <th className="px-4 py-3 text-left font-semibold">Status</th>
                     <th className="px-4 py-3 text-left font-semibold">Date</th>
-                    {/* changed from text-right → text-left to match certificates page */}
                     <th className="px-4 py-3 text-left font-semibold w-28">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
-                    // Loading skeleton
                     [...Array(5)].map((_, i) => (
                       <tr key={i} className="animate-pulse">
                         <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-32" /></td>
@@ -257,8 +257,12 @@ export default function AccessRequests() {
                       const style = STATUS_STYLES[r.status];
                       return (
                         <tr key={r.id} className="hover:bg-gray-50/60">
-                          <td className="px-4 py-3 font-medium">{r.company || "—"}</td>
-                          <td className="px-4 py-3 text-gray-600 font-mono text-xs">{r.applicant_id || "—"}</td>
+                          <td className="px-4 py-3 font-medium">
+                            {r.company ?? r.company_name ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 font-mono text-xs">
+                            {r.applicant_id ?? r.national_id_plain ?? "—"}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${style.bg} ${style.text}`}>
                               <span className={`h-2 w-2 rounded-full ${style.dot}`} />
@@ -269,7 +273,6 @@ export default function AccessRequests() {
                             {new Date(r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
                           </td>
                           <td className="px-4 py-3">
-                            {/* match MyCertificatesPage button style */}
                             <Link
                               to={`/applicant/requests/${r.id}`}
                               className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors"
