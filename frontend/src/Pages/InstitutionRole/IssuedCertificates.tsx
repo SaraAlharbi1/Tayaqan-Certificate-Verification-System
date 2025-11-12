@@ -7,13 +7,20 @@ import { api } from "@/lib/api";
 type BackendCert = {
   id: string | number;
 
-  // applicant fields
+  // applicant fields (various serializer variants)
   applicant_full_name?: string;
   applicant_name?: string;
-  applicant?: { full_name?: string; name?: string; national_id_plain?: string };
+  applicant?: {
+    full_name?: string;
+    name?: string;
+    national_id_plain?: string;
+    national_id?: string | number;
+  };
 
-  // sometimes exposed at root
-  national_id_plain?: string;
+  // sometimes exposed at root with different keys
+  national_id_plain?: string | number;
+  applicant_national_id_plain?: string | number;
+  applicant_national_id?: string | number;
 
   display_label?: string;
   issued_on?: string;
@@ -57,8 +64,17 @@ const pickApplicantName = (d: BackendCert) =>
   d.applicant?.name ||
   "—";
 
-const pickApplicantNID = (d: BackendCert) =>
-  d.national_id_plain || d.applicant?.national_id_plain || "—";
+/** Try all known national-id fields (root and nested, plain or not). */
+const pickApplicantNID = (d: BackendCert) => {
+  const v =
+    d.national_id_plain ??
+    d.applicant_national_id_plain ??
+    d.applicant_national_id ??
+    d.applicant?.national_id_plain ??
+    d.applicant?.national_id ??
+    "";
+  return v !== undefined && v !== null && String(v).trim() !== "" ? String(v) : "—";
+};
 
 /* =======================================================
    Issued Certificates (Institution)
@@ -100,30 +116,32 @@ export default function IssuedCertificates() {
       );
 
       const list = res.results ?? [];
-      const mapped: Row[] = list.map((d) => ([
-        String(d.id),
-        pickApplicantName(d),
-        pickApplicantNID(d),
-        d.display_label || "Untitled Certificate",
-        d.issued_on
-          ? new Date(d.issued_on).toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-            })
-          : "",
-        d.serial_number || "",
-        d.file_hash || "",
-      ] as const)).map(([id, applicant, nationalId, title, issueDate, serial, fileHash]) => ({
-        id,
-        applicant,
-        nationalId,
-        title,
-        issueDate,
-        serial,
-        fileHash,
-        status: "CHECKING",
-      }));
+      const mapped: Row[] = list
+        .map((d) => ([
+          String(d.id),
+          pickApplicantName(d),
+          pickApplicantNID(d),
+          d.display_label || "Untitled Certificate",
+          d.issued_on
+            ? new Date(d.issued_on).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })
+            : "",
+          d.serial_number || "",
+          d.file_hash || "",
+        ] as const))
+        .map(([id, applicant, nationalId, title, issueDate, serial, fileHash]) => ({
+          id,
+          applicant,
+          nationalId,
+          title,
+          issueDate,
+          serial,
+          fileHash,
+          status: "CHECKING",
+        }));
 
       setRows(mapped);
       setTotal(res.count ?? mapped.length);
@@ -393,7 +411,7 @@ export default function IssuedCertificates() {
                           >
                             {r.applicant}
                           </td>
-                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.nationalId}</td>
+                          <td className="px-4 py-3 text-gray-700 font-mono whitespace-nowrap">{r.nationalId}</td>
                           <td className="px-4 py-3 text-gray-600">{r.title}</td>
                           <td className="px-4 py-3 text-gray-600">{r.issueDate}</td>
                           <td className="px-4 py-3 font-mono text-gray-700 text-xs">{r.serial}</td>

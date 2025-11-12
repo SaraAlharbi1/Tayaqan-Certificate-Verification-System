@@ -6,12 +6,12 @@ Django settings for backend project (dev).
 from pathlib import Path
 import os
 from datetime import timedelta
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env", override=True) 
 
-dotenv_file = find_dotenv(usecwd=True) or str((BASE_DIR / ".env").resolve())
-load_dotenv(dotenv_file, override=True)
 
 # ------------------------------------------------------------------ Core
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret")

@@ -7,7 +7,7 @@ import { api, apiBlob } from "@/lib/api";
 type ApplicantMini = {
   id?: number;
   name?: string | null;
-  national_id_plain?: string | null; // plain ID (applicant-only)
+  national_id_plain?: string | null;
 };
 
 type CertDetail = {
@@ -17,17 +17,21 @@ type CertDetail = {
   issueDate?: string | null; // YYYY-MM-DD
   serial?: string | null;
 
-  // chain/meta
-  status?: string | null; // "ACTIVE" | "REVOKED" | ...
-  tx_hash?: string | null;
-  block_number?: number | null;
-  revoke_tx_hash?: string | null;
-  revoke_block_number?: number | null;
+  // from backend (aligned)
+  status?: string | null; // "ACTIVE" | "REVOKED" | "INVALID"
+  tx_hash?: string | null; // issuance tx (may be "0x..." or bare 64-hex)
+  block_number?: number | null; // issuance block
+  revoke_tx_hash?: string | null; // revocation tx
+  revoke_block_number?: number | null; // revocation block
 
-  // nested applicant
+  // nested applicant (if added)
   applicant?: ApplicantMini | null;
+
+  // optional alt field some endpoints return
+  nationalId?: string | null;
 };
 
+/* ------------------------ Small UI helpers ----------------------- */
 function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
   return (
     <div
@@ -60,8 +64,24 @@ function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () =
   );
 }
 
-const ETHERSCAN_BASE = "https://sepolia.etherscan.io";
+/* ------------------------ Etherscan helpers ---------------------- */
+// Always mainnet, as requested.
+const ETHERSCAN_BASE = "https://etherscan.io";
 
+/** Accepts "0x<64-hex>" or bare 64-hex; returns canonical 0x-lowercase or null */
+const normalizeTx = (v?: string | null) => {
+  if (!v) return null;
+  const s = v.trim();
+  const hex = s.startsWith("0x") ? s.slice(2) : s;
+  if (/^[a-fA-F0-9]{64}$/.test(hex)) return "0x" + hex.toLowerCase();
+  return null;
+};
+
+const isBlockNum = (v?: number | null) => typeof v === "number" && Number.isInteger(v) && v >= 0;
+const txUrl = (tx: string) => `${ETHERSCAN_BASE}/tx/${tx}`;
+const blockUrl = (n: number) => `${ETHERSCAN_BASE}/block/${n}`;
+
+/* ===================== Page: Certificate Details ===================== */
 export default function MyApplicantCertificateDetails() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -72,6 +92,7 @@ export default function MyApplicantCertificateDetails() {
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  /* ---------------------------- Load data ---------------------------- */
   useEffect(() => {
     if (!id) {
       setErr("No certificate ID provided");
@@ -96,6 +117,7 @@ export default function MyApplicantCertificateDetails() {
     };
   }, [id]);
 
+  /* ---------------------------- Actions ----------------------------- */
   const openPdf = useCallback(async () => {
     if (!id) return;
     setActionErr(null);
@@ -138,6 +160,7 @@ export default function MyApplicantCertificateDetails() {
     }
   }, [id, data?.serial]);
 
+  /* ---------------------------- States ------------------------------ */
   if (loading) {
     return (
       <section className="pt-0 pb-6">
@@ -169,7 +192,13 @@ export default function MyApplicantCertificateDetails() {
   const isRevoked = (data?.status || "").toUpperCase() === "REVOKED";
   const txToShow = isRevoked ? data?.revoke_tx_hash : data?.tx_hash;
   const blockToShow = isRevoked ? data?.revoke_block_number : data?.block_number;
+  const txNorm = normalizeTx(txToShow);
 
+  const nationalId =
+    data?.applicant?.national_id_plain ??
+    (data?.nationalId ?? null); // fallback if backend provides flat "nationalId"
+
+  /* ---------------------------- Render ------------------------------ */
   return (
     <section className="pt-0 pb-6">
       <div className="auth-wrap">
@@ -218,7 +247,7 @@ export default function MyApplicantCertificateDetails() {
             {/* Title + issuer + National ID */}
             <div className="mb-5 pb-5 border-b border-gray-200">
               <h2 className="text-2xl font-bold text-gray-900 mb-3">{data?.title || "Untitled Certificate"}</h2>
-              
+
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-gray-600">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -230,16 +259,21 @@ export default function MyApplicantCertificateDetails() {
                     />
                   </svg>
                   <span className="text-base font-medium">Issued by: </span>
-                    <span className="text-base font-bold text-gray-900 font-mono">{data?.issuerName || "—"}</span> 
+                  <span className="text-base font-bold text-gray-900 font-mono">{data?.issuerName || "—"}</span>
                 </div>
 
                 <div className="flex items-center gap-2 text-gray-600">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"
+                    />
                   </svg>
                   <span className="text-base font-medium">National ID: </span>
                   <span className="text-base font-bold text-gray-900 font-mono">
-                      {data?.nationalId ?? "—"}
+                    {nationalId ?? "—"}
                   </span>
                 </div>
               </div>
@@ -285,18 +319,20 @@ export default function MyApplicantCertificateDetails() {
               </div>
 
               <div className="space-y-3">
+                {/* Tx hash */}
                 <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     {isRevoked ? "Revocation Transaction" : "Issuance Transaction"}
                   </label>
-                  {txToShow && /^0x[0-9a-fA-F]{10,}$/.test(txToShow) ? (
+                  {txNorm ? (
                     <a
-                      href={`${ETHERSCAN_BASE}/tx/${txToShow}`}
+                      href={txUrl(txNorm)}
                       target="_blank"
                       rel="noreferrer"
                       className="font-mono text-sm text-indigo-600 hover:text-indigo-800 hover:underline break-all leading-relaxed inline-flex items-center gap-1 group"
+                      title="View on Etherscan"
                     >
-                      {txToShow}
+                      {txNorm}
                       <svg
                         className="w-3 h-3 flex-shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
                         fill="none"
@@ -316,24 +352,24 @@ export default function MyApplicantCertificateDetails() {
                   )}
                 </div>
 
+                {/* Block number */}
                 <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     {isRevoked ? "Revocation Block" : "Issuance Block"}
                   </label>
-                  <p className="text-base font-semibold text-gray-900">
-                    {blockToShow != null ? (
-                      <a
-                        href={`${ETHERSCAN_BASE}/block/${blockToShow}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-mono text-sm text-indigo-600 hover:text-indigo-800 hover:underline break-all"
-                      >
-                        {blockToShow}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </p>
+                  {isBlockNum(blockToShow) ? (
+                    <a
+                      href={blockUrl(blockToShow!)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-sm text-indigo-600 hover:text-indigo-800 hover:underline break-all"
+                      title="View block on Etherscan"
+                    >
+                      {blockToShow}
+                    </a>
+                  ) : (
+                    <span className="text-base font-semibold text-gray-900">—</span>
+                  )}
                 </div>
               </div>
             </div>

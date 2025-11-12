@@ -1,10 +1,16 @@
+// hardhat.config.js
 require("dotenv").config();
 require("hardhat-deploy");
 require("hardhat-gas-reporter");
-require("@nomicfoundation/hardhat-toolbox"); 
+require("@nomicfoundation/hardhat-toolbox");
 
 module.exports = {
-  solidity: { version: "0.8.28", settings: { optimizer: { enabled: true, runs: 1000 } } },
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      optimizer: { enabled: false, runs: 1200 },
+    },
+  },
   namedAccounts: { deployer: { default: 0 } },
   networks: {
     hardhat: {},

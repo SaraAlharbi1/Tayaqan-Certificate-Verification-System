@@ -1,92 +1,153 @@
 #!/usr/bin/env python3
 """
-Tx info for a certificate by file_hash using events.
-ENV: ETH_RPC_URL, CONTRACT_ADDRESS, CERTIFICATE_ABI_PATH, optional TXINFO_START_BLOCK
+Transaction Info Retrieval for Certificates
+
+Returns issuance/revocation tx details by scanning contract events.
+
+Env (.env auto-loaded from BACKEND_ROOT):
+  ETH_RPC_URL / WEB3_RPC_URL  - Ethereum RPC endpoint
+  CONTRACT_ADDRESS            - Deployed contract address
+  CERTIFICATE_ABI_PATH        - Path to ABI (Hardhat artifact or raw ABI JSON)
+  TXINFO_START_BLOCK          - Optional start block (int)
+
+Usage:
+  python utils/get_transaction_info.py 0x<file_hash_32bytes>
+
+Output (single-line JSON):
+  {"fileHash","issuedTx","issuedBlock","revokeTx","revokeBlock"}  (nulls if missing)
 """
-import os, sys, json, pathlib
+import os, sys, json
+from pathlib import Path
+from dotenv import load_dotenv
 from web3 import Web3
 
-def load_abi(path: str):
-    with open(path, "r", encoding="utf-8") as f:
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(BACKEND_ROOT / ".env")
+
+
+def _load_abi(path: str):
+    p = Path(path)
+    if not p.is_absolute():
+        p = (BACKEND_ROOT / path).resolve()
+    with p.open("r", encoding="utf-8") as f:
         data = json.load(f)
     return data["abi"] if isinstance(data, dict) and "abi" in data else data
 
-def auto_from_block(default: int = 0) -> int:
-    # 1) explicit env
-    v = os.getenv("TXINFO_START_BLOCK")
-    if v and str(v).isdigit():
-        return int(v)
 
-    # 2) auto: try Hardhat deployments artifact (local dev)
-    #    ./contract/deployments/localhost/TayaqanCertificate.json or ./deployments/localhost/...
-    candidates = [
-        pathlib.Path("contract/deployments/localhost/TayaqanCertificate.json"),
-        pathlib.Path("deployments/localhost/TayaqanCertificate.json"),
-    ]
-    for p in candidates:
-        if p.exists():
-            try:
-                d = json.loads(p.read_text(encoding="utf-8"))
-                b = int(d.get("receipt", {}).get("blockNumber", default))
-                return max(0, b - 1)  # small buffer
-            except Exception:
-                pass
+def _norm_hex(h: str) -> str:
+    h = (h or "").strip().lower()
+    return h if h.startswith("0x") else "0x" + h
+
+
+def _as_bytes32(h: str) -> bytes:
+    try:
+        b = Web3.to_bytes(hexstr=_norm_hex(h))
+        if len(b) != 32:
+            raise ValueError("hash != 32 bytes")
+        return b
+    except Exception as e:
+        print(json.dumps({"error": "bad_hash", "detail": str(e)}))
+        sys.exit(1)
+
+
+def _auto_from_block(default: int = 0) -> int:
+    v = os.getenv("TXINFO_START_BLOCK")
+    if v:
+        try:
+            return int(v, 0)  # supports "0x.." or decimal
+        except Exception:
+            pass
     return default
+
 
 def main():
     if len(sys.argv) < 2:
-        print("{}"); return
-    rpc  = os.getenv("ETH_RPC_URL")
+        print(json.dumps({"error": "missing_arg", "usage": "python utils/get_transaction_info.py 0x<file_hash_32bytes>"}))
+        return
+
+    rpc = os.getenv("ETH_RPC_URL") or os.getenv("WEB3_RPC_URL")
     addr = os.getenv("CONTRACT_ADDRESS")
     abi_path = os.getenv("CERTIFICATE_ABI_PATH")
-    if not rpc or not addr or not abi_path:
-        print(json.dumps({"error":"Missing ETH_RPC_URL / CONTRACT_ADDRESS / CERTIFICATE_ABI_PATH"})); return
 
-    w3 = Web3(Web3.HTTPProvider(rpc))
-    if not w3.is_connected():
-        print(json.dumps({"error":f"Cannot connect to RPC {rpc}"})); return
+    missing = []
+    if not rpc:      missing.append("ETH_RPC_URL|WEB3_RPC_URL")
+    if not addr:     missing.append("CONTRACT_ADDRESS")
+    if not abi_path: missing.append("CERTIFICATE_ABI_PATH")
+    if missing:
+        print(json.dumps({"error": "missing_env", "missing": missing}))
+        return
 
-    abi = load_abi(abi_path)
-    c = w3.eth.contract(address=Web3.to_checksum_address(addr), abi=abi)
+    try:
+        w3 = Web3(Web3.HTTPProvider(rpc))
+        if not w3.is_connected():
+            print(json.dumps({"error": "rpc_unreachable", "detail": rpc}))
+            return
+    except Exception as e:
+        print(json.dumps({"error": "rpc_provider_error", "detail": str(e)}))
+        return
 
-    file_hash_hex = sys.argv[1]          # "0x.."
-    file_hash = Web3.to_bytes(hexstr=file_hash_hex)
+    try:
+        abi = _load_abi(abi_path)
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(addr),
+            abi=abi
+        )
+    except Exception as e:
+        print(json.dumps({"error": "bad_contract", "detail": str(e)}))
+        return
 
-    latest = w3.eth.block_number
-    from_block = auto_from_block(0)
+    file_hash_hex = _norm_hex(sys.argv[1])
+    file_hash = _as_bytes32(file_hash_hex)
+
+    try:
+        latest = w3.eth.block_number
+    except Exception as e:
+        print(json.dumps({"error": "rpc_block_error", "detail": str(e)}))
+        return
+
+    from_block = max(0, min(_auto_from_block(0), latest))
 
     issued_tx = issued_blk = revoked_tx = revoked_blk = None
 
+    # event CertificateIssued(bytes32 indexed applicantIdHash, bytes32 indexed fileHash, uint64 issuedAt);
     try:
-        ev_issued = c.events.CertificateIssued().get_logs(
-            fromBlock=from_block, toBlock=latest, argument_filters={"fileHash": file_hash}
+        ev_issued = contract.events.CertificateIssued().get_logs(
+            from_block=from_block,
+            to_block=latest,
+            argument_filters={"fileHash": file_hash},
         )
         if ev_issued:
-            e = sorted(ev_issued, key=lambda x:(x["blockNumber"], x["logIndex"]))[-1]
+            e = sorted(ev_issued, key=lambda x: (x["blockNumber"], x["logIndex"]))[-1]
             issued_tx = e["transactionHash"].hex()
-            issued_blk = e["blockNumber"]
+            issued_blk = int(e["blockNumber"])
     except Exception:
         pass
 
+    # event CertificateRevoked(bytes32 indexed fileHash, uint64 revokedAt);
     try:
-        ev_revoked = c.events.CertificateRevoked().get_logs(
-            fromBlock=from_block, toBlock=latest, argument_filters={"fileHash": file_hash}
+        ev_revoked = contract.events.CertificateRevoked().get_logs(
+            from_block=from_block,
+            to_block=latest,
+            argument_filters={"fileHash": file_hash},
         )
         if ev_revoked:
-            e = sorted(ev_revoked, key=lambda x:(x["blockNumber"], x["logIndex"]))[-1]
+            e = sorted(ev_revoked, key=lambda x: (x["blockNumber"], x["logIndex"]))[-1]
             revoked_tx = e["transactionHash"].hex()
-            revoked_blk = e["blockNumber"]
+            revoked_blk = int(e["blockNumber"])
     except Exception:
         pass
 
-    out = {
-        "fileHash": file_hash_hex,
-        "issuedTx": issued_tx,
-        "issuedBlock": issued_blk,
-        "revokeTx": revoked_tx,
-        "revokeBlock": revoked_blk,
-    }
-    print(json.dumps(out, separators=(",",":")))
+    print(json.dumps(
+        {
+            "fileHash": file_hash_hex,
+            "issuedTx": issued_tx,
+            "issuedBlock": issued_blk,
+            "revokeTx": revoked_tx,
+            "revokeBlock": revoked_blk,
+        },
+        separators=(",", ":")
+    ))
+
 
 if __name__ == "__main__":
     main()

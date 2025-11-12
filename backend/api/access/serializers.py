@@ -2,6 +2,7 @@
 """Serializers for access requests and approvals."""
 from django.db import transaction
 from rest_framework import serializers
+
 from api.accounts.models import Applicant, Employer
 from api.accounts.utils import normalize_national_id
 from api.accounts.validators import is_national_id_10_digits
@@ -9,19 +10,22 @@ from .models import AccessRequest, AccessShare
 
 
 class AccessRequestSerializer(serializers.ModelSerializer):
-    """For listing and detail."""
+    """List/detail rows shown in the Access Requests table."""
     employer_name = serializers.CharField(source="employer.company_name", read_only=True)
     applicant_name = serializers.CharField(source="applicant.full_name", read_only=True)
+    # >>> THIS is the National ID (not DB id)
+    national_id_plain = serializers.CharField(source="applicant.national_id_plain", read_only=True)
 
     class Meta:
         model = AccessRequest
         fields = [
-            "id",
+            "id",                # request id (keep if you show it anywhere)
             "status",
             "created_at",
             "decided_at",
             "employer_name",
             "applicant_name",
+            "national_id_plain",  # <- applicant’s National ID
         ]
 
 
@@ -52,7 +56,7 @@ class AccessRequestCreateSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated):
-        # Will raise on unique constraint if one pending already exists
+        # unique constraint will block duplicate pending requests
         return AccessRequest.objects.create(
             employer=validated["employer"],
             applicant=validated["applicant"],
