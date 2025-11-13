@@ -1,4 +1,4 @@
-// src/Pages/InstitutionRole/UploadCertificate.tsx
+﻿// src/Pages/InstitutionRole/UploadCertificate.tsx
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -68,7 +68,7 @@ export default function UploadCertificate() {
     if (f.size > MAX_FILE_MB * 1024 * 1024) {
       setFile(null);
       setUploadName("");
-      setFileError(`File must be ≤ ${MAX_FILE_MB}MB`);
+      setFileError(`File must be â‰¤ ${MAX_FILE_MB}MB`);
       return;
     }
     setFile(f);
@@ -116,7 +116,7 @@ export default function UploadCertificate() {
           id: res?.id,
           txHash: res?.tx_hash,
           blockNumber: res?.block_number,
-          cid: res?.cid_enc ?? res?.cid,
+          cid: res?.cid_blob ?? res?.cid,
         },
       });
     } catch (err: any) {
@@ -260,7 +260,7 @@ export default function UploadCertificate() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Uploading…
+                      Uploadingâ€¦
                     </>
                   ) : (
                     <>
@@ -279,3 +279,4 @@ export default function UploadCertificate() {
     </section>
   );
 }
+

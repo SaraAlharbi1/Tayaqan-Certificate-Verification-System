@@ -1,4 +1,4 @@
-from django.urls import reverse
+﻿from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -81,7 +81,7 @@ class CertificatesAPITests(APITestCase):
         }
         res = self.client.post(self.issue_url, data, format="multipart")
         self.assertEqual(res.status_code, 200)
-        self.assertIn("cid_enc", res.data)
+        self.assertIn("cid_blob", res.data)
         self.assertIn("tx_hash", res.data)
 
         cert = Certificate.objects.first()
@@ -139,7 +139,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "11"*32,
-            cid_enc="bafyA",
+            cid_blob="bafyA",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -152,7 +152,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.other_user,
             file_hash="0x" + "22"*32,
-            cid_enc="bafyB",
+            cid_blob="bafyB",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -171,7 +171,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "33"*32,
-            cid_enc="bafyC",
+            cid_blob="bafyC",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -183,13 +183,13 @@ class CertificatesAPITests(APITestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data["id"], cert.id)
 
-        # other institution's cert → 404
+        # other institution's cert â†’ 404
         other_cert = Certificate.objects.create(
             institution=self.other_inst,
             applicant=self.applicant,
             created_by_user=self.other_user,
             file_hash="0x" + "44"*32,
-            cid_enc="bafyD",
+            cid_blob="bafyD",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -206,7 +206,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "55"*32,
-            cid_enc="bafyE",
+            cid_blob="bafyE",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -218,7 +218,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "56"*32,
-            cid_enc="bafyF",
+            cid_blob="bafyF",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -249,7 +249,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "60"*32,
-            cid_enc="bafy60",
+            cid_blob="bafy60",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -262,7 +262,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "61"*32,
-            cid_enc="bafy61",
+            cid_blob="bafy61",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -286,7 +286,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "aa"*32,
-            cid_enc="bafyAA",
+            cid_blob="bafyAA",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -316,7 +316,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "bb"*32,
-            cid_enc="bafyBB",
+            cid_blob="bafyBB",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -331,13 +331,13 @@ class CertificatesAPITests(APITestCase):
 
     @patch("subprocess.check_output")
     def test_revoke_scoped_404(self, mock_check_output):
-        # other institution's cert → 404 and no subprocess call
+        # other institution's cert â†’ 404 and no subprocess call
         cert = Certificate.objects.create(
             institution=self.other_inst,
             applicant=self.applicant,
             created_by_user=self.other_user,
             file_hash="0x" + "cc"*32,
-            cid_enc="bafyCC",
+            cid_blob="bafyCC",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -357,7 +357,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "dd"*32,
-            cid_enc="bafyDD",
+            cid_blob="bafyDD",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -392,7 +392,7 @@ class CertificatesAPITests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.inst_user,
             file_hash="0x" + "77"*32,
-            cid_enc="bafy77",
+            cid_blob="bafy77",
             enc_nonce="aa",
             enc_tag="bb",
             enc_key_protected="cc",
@@ -403,3 +403,4 @@ class CertificatesAPITests(APITestCase):
         url = reverse(DETAIL_URL_NAME, kwargs={"pk": cert.id})
         res = self.client.get(url)
         self.assertEqual(res.status_code, 401)
+

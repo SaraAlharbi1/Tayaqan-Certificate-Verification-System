@@ -1,4 +1,4 @@
-from django.db import models
+﻿from django.db import models
 from django.conf import settings
 
 class Certificate(models.Model):
@@ -11,7 +11,7 @@ class Certificate(models.Model):
 
     # Integrity + storage (encrypted file on Storacha/IPFS)
     file_hash = models.CharField(max_length=66, db_index=True)  # keccak256 hex (0x + 64)
-    cid_enc = models.TextField()  # encrypted PDF CID
+    cid_blob = models.TextField()  # encrypted PDF CID
 
     # Crypto envelope (needed to decrypt the PDF)
     enc_nonce = models.CharField(max_length=64)  # hex
@@ -37,3 +37,4 @@ class Certificate(models.Model):
     def __str__(self):
         label = self.display_label or self.file_hash[:10]
         return f"Cert {self.id} - {label}"
+

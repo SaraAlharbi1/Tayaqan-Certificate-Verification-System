@@ -1,4 +1,4 @@
-# backend/api/access/tests.py
+﻿# backend/api/access/tests.py
 
 from django.urls import reverse
 from django.utils import timezone
@@ -86,7 +86,7 @@ class AccessFlowTests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.u_inst,
             file_hash="0x" + "12" * 32,
-            cid_enc="bafyenc..",
+            cid_blob="bafyenc..",
             enc_nonce="00" * 32,
             enc_tag="11" * 32,
             enc_key_protected="22" * 64,
@@ -150,7 +150,7 @@ class AccessFlowTests(APITestCase):
     # ============ Approve flow (NO blockchain) ============
 
     def test_applicant_approves_without_blockchain(self):
-        """✅ NEW: Approval is database-only (no blockchain call)"""
+        """âœ… NEW: Approval is database-only (no blockchain call)"""
         ar = self._mk_pending_request()
         self.client.force_authenticate(self.u_app)
         url = reverse("applicant-requests-approve", args=[ar.id])
@@ -185,7 +185,7 @@ class AccessFlowTests(APITestCase):
             applicant=self.applicant,
             created_by_user=self.u_inst,
             file_hash="0x" + "34" * 32,
-            cid_enc="bafyenc2..",
+            cid_blob="bafyenc2..",
             enc_nonce="00" * 32,
             enc_tag="11" * 32,
             enc_key_protected="22" * 64,
@@ -254,7 +254,7 @@ class AccessFlowTests(APITestCase):
             applicant=other_app,
             created_by_user=self.u_inst,
             file_hash="0x" + "34" * 32,
-            cid_enc="x",
+            cid_blob="x",
             enc_nonce="00" * 32,
             enc_tag="11" * 32,
             enc_key_protected="22" * 64,
@@ -286,9 +286,9 @@ class AccessFlowTests(APITestCase):
 
     # ============ Employer reads shared list ============
 
-    @mock.patch('api.access.views.get_certificates_batch')  # ✅ FIX: Mock where it's imported
+    @mock.patch('api.access.views.get_certificates_batch')  # âœ… FIX: Mock where it's imported
     def test_employer_shared_with_blockchain_verification(self, mock_blockchain):
-        """✅ NEW: Employer viewing calls blockchain for verification"""
+        """âœ… NEW: Employer viewing calls blockchain for verification"""
         # Mock blockchain response (certificate is valid)
         mock_blockchain.return_value = [{
             'file_hash': self.cert.file_hash,
@@ -321,15 +321,15 @@ class AccessFlowTests(APITestCase):
         certs = r_ok.data.get("certificates", r_ok.data.get("results", []))
         self.assertEqual(len(certs), 1)
 
-    @mock.patch('api.access.views.get_certificates_batch')  # ✅ FIX: Mock where it's imported
+    @mock.patch('api.access.views.get_certificates_batch')  # âœ… FIX: Mock where it's imported
     def test_employer_cannot_see_revoked_certificates(self, mock_blockchain):
-        """✅ NEW: Revoked certificates filtered out by blockchain check"""
+        """âœ… NEW: Revoked certificates filtered out by blockchain check"""
         # Mock blockchain response (certificate is revoked)
         mock_blockchain.return_value = [{
             'file_hash': self.cert.file_hash,
             'applicant_id_hash': self.applicant.national_id_hash,
             'issued_at': 1699459200,
-            'revoked': True,  # ⚠️ REVOKED
+            'revoked': True,  # âڑ ï¸ڈ REVOKED
             'exists': True
         }]
         

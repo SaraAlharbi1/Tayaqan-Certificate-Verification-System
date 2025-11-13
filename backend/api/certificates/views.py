@@ -1,4 +1,4 @@
-# backend/api/certificates/views.py
+﻿# backend/api/certificates/views.py
 """
 Certificate endpoints.
 
@@ -268,11 +268,11 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
         inst = _resolve_institution(self.request.user)
         cert = get_object_or_404(Certificate.objects.filter(institution=inst).select_related("applicant"), pk=pk)
 
-        if not cert.cid_enc:
+        if not cert.cid_blob:
             return err_500("missing_cid", "Encrypted file CID is missing.")
 
         try:
-            enc_bytes = _fetch_cid_bytes(cert.cid_enc, timeout=60)
+            enc_bytes = _fetch_cid_bytes(cert.cid_blob, timeout=60)
             pdf_bytes = _aes_gcm_decrypt(enc_bytes, cert.enc_key_protected, cert.enc_nonce, cert.enc_tag)
         except subprocess.CalledProcessError as e:
             return err_500("fetch_cid_failed", "Could not fetch encrypted file.", {"output": (e.output or "")[:400]})
@@ -290,7 +290,7 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
     # ---- POST /issue ----
     @extend_schema(
         tags=["2. Certificates"],
-        summary="06. Issue a certificate (on-chain → encrypt → upload → save)",
+        summary="06. Issue a certificate (on-chain â†’ encrypt â†’ upload â†’ save)",
         operation_id="02_certificates_issue",
         request={
             "multipart/form-data": {
@@ -371,8 +371,8 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
             out = subprocess.check_output(["node", "utils/issue_upload.js", tmp_path],
                                           text=True, stderr=subprocess.STDOUT, env=os.environ.copy())
             data = json.loads(out)
-            cid_enc = data.get("cid") or (data.get("root") or {}).get("/")
-            if not cid_enc:
+            cid_blob = data.get("cid") or (data.get("root") or {}).get("/")
+            if not cid_blob:
                 raise ValueError(f"Unexpected uploader output: {out}")
         except subprocess.CalledProcessError as e:
             return err_500("storacha_upload_failed", "Encrypted file upload failed.", {"output": e.output})
@@ -393,7 +393,7 @@ class InstitutionCertificateViewSet(mixins.ListModelMixin, mixins.RetrieveModelM
                     applicant=applicant,
                     created_by_user=request.user,
                     file_hash=file_hash,
-                    cid_enc=cid_enc,
+                    cid_blob=cid_blob,
                     enc_nonce=nonce.hex(),
                     enc_tag=tag.hex(),
                     enc_key_protected=key.hex(),   # stored server-side; NOT returned by serializers
@@ -576,7 +576,7 @@ class MyCertificatesViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
         applicant = _resolve_applicant(request.user)
         cert = get_object_or_404(Certificate.objects.filter(applicant=applicant), pk=pk)
 
-        if not cert.cid_enc:
+        if not cert.cid_blob:
             return err_500("missing_cid", "Encrypted file CID is missing.")
 
         # require ACTIVE on-chain
@@ -585,7 +585,7 @@ class MyCertificatesViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
             return err_409("revoked_or_missing", "Certificate is not valid on-chain for viewing.")
 
         try:
-            enc_bytes = _fetch_cid_bytes(cert.cid_enc, timeout=60)
+            enc_bytes = _fetch_cid_bytes(cert.cid_blob, timeout=60)
             pdf_bytes = _aes_gcm_decrypt(enc_bytes, cert.enc_key_protected, cert.enc_nonce, cert.enc_tag)
         except subprocess.CalledProcessError as e:
             return err_500("fetch_cid_failed", "Could not fetch encrypted file.", {"output": (e.output or "")[:400]})
@@ -661,11 +661,11 @@ class EmployerCertificatesViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
     @action(methods=["get"], detail=True, url_path="file", permission_classes=[IsAuthenticated])
     def file(self, request, pk=None):
         cert = get_object_or_404(self.get_queryset(), pk=pk)
-        if not cert.cid_enc:
+        if not cert.cid_blob:
             return err_500("missing_cid", "Encrypted file CID is missing.")
 
         try:
-            enc_bytes = _fetch_cid_bytes(cert.cid_enc, timeout=60)
+            enc_bytes = _fetch_cid_bytes(cert.cid_blob, timeout=60)
             pdf_bytes = _aes_gcm_decrypt(enc_bytes, cert.enc_key_protected, cert.enc_nonce, cert.enc_tag)
         except subprocess.CalledProcessError as e:
             return err_500("fetch_cid_failed", "Could not fetch encrypted file.", {"output": (e.output or "")[:400]})
@@ -679,4 +679,5 @@ class EmployerCertificatesViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'inline; filename="certificate_{cert.id}.pdf"'
         return resp
+
 

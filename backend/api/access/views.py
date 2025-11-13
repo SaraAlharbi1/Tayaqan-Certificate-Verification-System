@@ -1,4 +1,4 @@
-# backend/api/access/views.py
+﻿# backend/api/access/views.py
 """
 Access flows.
 - Employer: create/list own requests; verify applicant exists; see shared certs.
@@ -41,7 +41,7 @@ from api.certificates.models import Certificate
 from api.certificates.serializers import CertificateListSerializer
 
 
-# ───────────── Helpers ─────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _as_list(res):
     if isinstance(res, str):
@@ -144,7 +144,7 @@ def _active_map(hashes: List[str]) -> Dict[str, bool]:
     return out
 
 
-# ───────────── Email (best-effort) ─────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Email (best-effort) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def send_access_request_email(access_request):
     try:
@@ -209,7 +209,7 @@ def send_status_update_email(access_request, shared_count=0):
         print(f"access email (status) failed: {e}")
 
 
-# ───────────── Permissions ─────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Permissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class IsEmployer(BasePermission):
     def has_permission(self, request, view):
@@ -221,7 +221,7 @@ class IsApplicant(BasePermission):
         return bool(getattr(request.user, "applicant", None))
 
 
-# ───────────── Employer ViewSet ─────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Employer ViewSet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @extend_schema_view(
     list=extend_schema(
@@ -346,7 +346,7 @@ class EmployerAccessRequestViewSet(
         return self.get_paginated_response(data) if page is not None else Response({"certificates": data})
 
 
-# ───────────── Applicant ViewSet ─────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Applicant ViewSet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @extend_schema_view(
     list=extend_schema(
@@ -507,7 +507,7 @@ class ApplicantAccessRequestViewSet(
         return Response(AccessRequestSerializer(ar).data)
 
 
-# ───────────── Employer Certificate Access (shared) ─────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Employer Certificate Access (shared) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @extend_schema_view(
     list=extend_schema(
@@ -596,11 +596,11 @@ class EmployerCertificateViewSet(
             return HttpResponse("Certificate not found on blockchain", status=404)
         if v.get("revoked"):
             return HttpResponse("Certificate has been revoked", status=410)
-        if not cert.cid_enc:
+        if not cert.cid_blob:
             return HttpResponse("Missing encrypted file.", status=500)
 
         try:
-            enc_bytes = _fetch_cid_bytes_b64(cert.cid_enc, timeout=60)
+            enc_bytes = _fetch_cid_bytes_b64(cert.cid_blob, timeout=60)
         except subprocess.CalledProcessError as e:
             return HttpResponse(f"Fetch failed: {(e.output or '')[:400]}", status=500)
         except Exception as e:
@@ -636,3 +636,4 @@ class EmployerCertificateViewSet(
             return HttpResponse("Decryption failed: corrupted data or bad key.", status=500)
         except Exception as e:
             return HttpResponse(f"Decryption error: {e}", status=500)
+
