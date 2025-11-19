@@ -1,37 +1,53 @@
 """
-Custom DRF permissions for Accounts.
+Custom DRF permissions for the Accounts domain.
 
-- HasRole(role):
-    Gate an endpoint to a specific role (Applicant/Employer/Institution/Admin).
-- IsEmployerApproved:
-    Employers must be APPROVED to access sensitive certificate data.
-    (They can still log in and create requests while PENDING per your policy.)
+- HasRole(role): restricts an endpoint to a specific user role.
+- IsEmployerApproved: only approved employers may access protected endpoints.
+- IsInstitutionApproved: only approved institutions may access protected endpoints.
 """
+
 from rest_framework.permissions import BasePermission
-from .models import User, Employer
+from .models import User, Employer, Institution
 
 
 class HasRole(BasePermission):
-    """Simple role check permission."""
+    """Allow access only to users with the specified role."""
 
     def __init__(self, role):
         self.role = role
 
-    def has_permission(self, request, view) -> bool:
-        return bool(request.user and request.user.is_authenticated and request.user.role == self.role)
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.role == self.role)
 
 
 class IsEmployerApproved(BasePermission):
-    """
-    Allow if:
-    - user is NOT an employer (check doesn't apply), OR
-    - user is an employer with status = APPROVED.
-    """
-    def has_permission(self, request, view) -> bool:
+    """Allow only approved employers to access protected resources."""
+
+    def has_permission(self, request, view):
         user = request.user
         if not user or not user.is_authenticated:
             return False
+
+        # Applies only to employers
         if user.role != User.Roles.EMPLOYER:
             return True
-        emp = getattr(user, "employer", None)
-        return bool(emp and emp.status == Employer.Status.APPROVED)
+
+        employer = getattr(user, "employer", None)
+        return bool(employer and employer.status == Employer.Status.APPROVED)
+
+
+class IsInstitutionApproved(BasePermission):
+    """Allow only approved institutions to access protected resources."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+
+        # Applies only to institutions
+        if user.role != User.Roles.INSTITUTION:
+            return True
+
+        institution = getattr(user, "institution", None)
+        return bool(institution and institution.status == Institution.Status.APPROVED)

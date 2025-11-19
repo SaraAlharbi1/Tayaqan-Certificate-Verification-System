@@ -1,10 +1,10 @@
-# backend/api/accounts/views.py
-"""HTTP endpoints for Accounts (router + ViewSets)."""
+"""
+API views for Accounts domain.
+Handles: auth, signup, admin moderation, password reset.
+"""
+
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-from django.core.mail import send_mail
-from django.template.loader import render_to_string
-from django.utils.html import strip_tags
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -28,34 +28,36 @@ from .serializers import (
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
 )
+from .events import employer_approved, institution_approved
 
 
-# ---------- Auth ----------
+# ============================================================
+# Authentication
+# ============================================================
+
 @extend_schema_view(
     login=extend_schema(
-        tags=["1. Accounts"],
-        summary="01. User Login",
-        description="Authenticate with email or national ID and password to receive JWT tokens.",
+        tags=["Accounts"],
+        summary="User Login",
+        description="Login with email/national ID + password. Returns JWT tokens.",
         request=LoginSerializer,
         responses={200: LoginSerializer},
-        operation_id="01_accounts_login",
     ),
     refresh=extend_schema(
-        tags=["1. Accounts"],
-        summary="02. Refresh JWT",
+        tags=["Accounts"],
+        summary="Refresh JWT Token",
         request=TokenRefreshSerializer,
         responses={200: TokenRefreshSerializer},
-        operation_id="02_accounts_refresh",
     ),
     me=extend_schema(
-        tags=["1. Accounts"],
-        summary="03. Get Current User Profile",
-        responses={200: MeSerializer, 401: {"description": "Authentication required"}},
-        operation_id="03_accounts_me",
+        tags=["Accounts"],
+        summary="Get Current User",
+        responses={200: MeSerializer},
     ),
 )
 class AuthViewSet(viewsets.GenericViewSet):
-    """Routes: POST /auth/login, POST /auth/refresh, GET /auth/me."""
+    """Auth endpoints: login, refresh, me."""
+    
     queryset = User.objects.none()
     permission_classes = [AllowAny]
 
@@ -73,65 +75,81 @@ class AuthViewSet(viewsets.GenericViewSet):
 
     @action(methods=["get"], detail=False, url_path="me", permission_classes=[IsAuthenticated])
     def me(self, request):
-        """Return current user + role profile; include 'status' for moderated roles."""
-        user: User = request.user
+        """Return current user profile."""
+        user = request.user
         profile = {}
         status_text = None
 
         if user.role == User.Roles.APPLICANT and hasattr(user, "applicant"):
             a = user.applicant
-            profile = {"full_name": a.full_name, "national_id": a.national_id_plain, "phone": a.phone}
+            profile = {
+                "full_name": a.full_name,
+                "national_id": a.national_id_plain,
+                "wallet_address": a.wallet_address,
+                "phone": a.phone,
+            }
+
         elif user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
             e = user.employer
             profile = {
                 "full_name": e.full_name,
                 "company_name": e.company_name,
-                "cr_number": e.cr_number_plain,
+                "official_email": e.official_email,
+                "phone": e.phone,
             }
             status_text = e.status
+
         elif user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
-            i: Institution = user.institution
+            i = user.institution
             profile = {
                 "institution_name": i.institution_name,
-                "department": i.department,
-                "phone": getattr(i, "phone", None),
-                "official_email": getattr(i, "official_email", None),
+                "institution_id": i.institution_id,
+                "official_email": i.official_email,
+                "phone": i.phone,
+                "wallet_address": i.wallet_address,
+                "contract_address": i.contract_address,
             }
             status_text = i.status
 
-        payload = {"id": user.id, "email": user.email, "role": user.role, "profile": profile}
+        payload = {
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "profile": profile,
+        }
         if status_text:
             payload["status"] = status_text
 
         return Response(MeSerializer(payload).data, status=status.HTTP_200_OK)
 
 
-# ---------- Signup ----------
+# ============================================================
+# Signup
+# ============================================================
+
 @extend_schema_view(
     applicant=extend_schema(
-        tags=["1. Accounts"],
-        summary="04. Create Applicant Account",
+        tags=["Accounts"],
+        summary="Signup as Applicant",
         request=ApplicantSignupSerializer,
         responses={201: {"description": "Created"}},
-        operation_id="04_accounts_signup_applicant",
     ),
     employer=extend_schema(
-        tags=["1. Accounts"],
-        summary="05. Create Employer Account",
+        tags=["Accounts"],
+        summary="Signup as Employer",
         request=EmployerSignupSerializer,
-        responses={201: {"description": "Submitted"}},
-        operation_id="05_accounts_signup_employer",
+        responses={201: {"description": "Submitted for approval"}},
     ),
     institution=extend_schema(
-        tags=["1. Accounts"],
-        summary="06. Create Institution Account",
+        tags=["Accounts"],
+        summary="Signup as Institution",
         request=InstitutionSignupSerializer,
-        responses={201: {"description": "Submitted"}},
-        operation_id="06_accounts_signup_institution",
+        responses={201: {"description": "Submitted for approval"}},
     ),
 )
 class SignupViewSet(viewsets.GenericViewSet):
-    """Routes: POST /signup/applicant|employer|institution."""
+    """Signup endpoints for all roles."""
+    
     queryset = User.objects.none()
     permission_classes = [AllowAny]
 
@@ -140,140 +158,160 @@ class SignupViewSet(viewsets.GenericViewSet):
         ser = ApplicantSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
-        return Response({"message": "Applicant created. You can sign in now."}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"message": "Account created. You can sign in now."},
+            status=status.HTTP_201_CREATED
+        )
 
     @action(methods=["post"], detail=False, url_path="employer", parser_classes=[MultiPartParser, FormParser])
     def employer(self, request):
         ser = EmployerSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
-        return Response({"message": "Employer submitted. Await approval.", "status": "PENDING"}, status=201)
+        return Response(
+            {"message": "Application submitted. Await admin approval.", "status": "PENDING"},
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(methods=["post"], detail=False, url_path="institution", parser_classes=[MultiPartParser, FormParser])
     def institution(self, request):
         ser = InstitutionSignupSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.create(ser.validated_data)
-        return Response({"message": "Institution submitted. Await approval.", "status": "PENDING"}, status=201)
+        return Response(
+            {"message": "Application submitted. Await admin approval.", "status": "PENDING"},
+            status=status.HTTP_201_CREATED,
+        )
 
 
-# ---------- Admin moderation ----------
+# ============================================================
+# Admin Moderation
+# ============================================================
+
 @extend_schema_view(
     pending=extend_schema(
-        tags=["1. Accounts"],
-        summary="07. List Pending Accounts",
+        tags=["Admin"],
+        summary="List Pending Accounts",
         parameters=[
             OpenApiParameter(
                 name="role",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 enum=["employer", "institution"],
-                description="Filter by role",
             )
         ],
-        operation_id="07_accounts_pending",
     ),
     status=extend_schema(
-        tags=["1. Accounts"],
-        summary="08. Update Account Status",
+        tags=["Admin"],
+        summary="Update Account Status",
+        description="Approve/reject employer or institution. Triggers blockchain deployment on approval.",
         request=AdminStatusUpdateSerializer,
-        operation_id="08_accounts_update_status",
     ),
 )
 class AdminAccountsViewSet(viewsets.GenericViewSet):
-    """Routes: GET /admin/accounts/pending, PATCH /admin/accounts/{user_id}/status."""
+    """Admin endpoints for account moderation."""
+    
     queryset = User.objects.all()
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     @action(methods=["get"], detail=False, url_path="pending")
     def pending(self, request):
+        """List pending accounts by role."""
         role = request.query_params.get("role")
+        
         if role == "employer":
             data = [
-                {"id": e.user.id, "email": e.user.email, "company_name": e.company_name, "status": e.status}
+                {
+                    "id": e.user.id,
+                    "email": e.user.email,
+                    "company_name": e.company_name,
+                    "status": e.status,
+                }
                 for e in Employer.objects.filter(status=Employer.Status.PENDING)
             ]
-            return Response({"results": data}, status=200)
+            return Response({"results": data}, status=status.HTTP_200_OK)
+
         if role == "institution":
             data = [
-                {"id": i.user.id, "email": i.user.email, "institution_name": i.institution_name, "status": i.status}
+                {
+                    "id": i.user.id,
+                    "email": i.user.email,
+                    "institution_name": i.institution_name,
+                    "status": i.status,
+                }
                 for i in Institution.objects.filter(status=Institution.Status.PENDING)
             ]
-            return Response({"results": data}, status=200)
-        return Response({"results": []}, status=200)
+            return Response({"results": data}, status=status.HTTP_200_OK)
+
+        return Response({"results": []}, status=status.HTTP_200_OK)
 
     @action(methods=["patch"], detail=True, url_path="status")
     def status(self, request, pk=None):
-        """Update Employer/Institution status and email them (HTML + plain fallback)."""
+        """
+        Approve or reject account.
+        Institution approval triggers automatic blockchain deployment.
+        """
         ser = AdminStatusUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         status_choice = ser.validated_data["status"]
-        notes = ser.validated_data.get("notes", "")
 
         user = get_object_or_404(User, id=pk)
-        frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
-        dashboard_url = f"{frontend}/"
 
-        # helper to send HTML + plain (and don't hide failures)
-        def send_status_email(to_email: str, name: str, kind: str):
-            ctx = {
-                "name": name,
-                "kind": kind,
-                "status": status_choice,
-                "notes": notes,
-                "dashboard_url": dashboard_url,
-            }
-            html = render_to_string("Registration_update.html", ctx)
-            text = strip_tags(html)
-            send_mail(
-                subject=f"{kind} registration {status_choice}",
-                message=text,
-                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "Tayaqan <no-reply@tayaqan.local>"),
-                recipient_list=[to_email],
-                fail_silently=False,  # surface email errors
-                html_message=html,
+        # Handle employer approval
+        if user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
+            e = user.employer
+            e.status = status_choice
+            e.save(update_fields=["status"])
+            if status_choice == Employer.Status.APPROVED:
+                employer_approved(e)
+            return Response(
+                {"id": user.id, "role": "EMPLOYER", "status": e.status},
+                status=status.HTTP_200_OK
             )
 
-        if user.role == User.Roles.EMPLOYER and hasattr(user, "employer"):
-            e: Employer = user.employer
-            e.status = status_choice
-            e.status_notes = notes
-            e.save(update_fields=["status", "status_notes"])
-            name = (e.full_name or "").strip() or user.email.split("@")[0]
-            if user.email:
-                send_status_email(user.email, name, "Employer")
-            return Response({"id": user.id, "role": "EMPLOYER", "status": e.status}, status=200)
-
+        # Handle institution approval (triggers blockchain deployment)
         if user.role == User.Roles.INSTITUTION and hasattr(user, "institution"):
-            i: Institution = user.institution
-            i.status = status_choice
-            i.status_notes = notes
-            i.save(update_fields=["status", "status_notes"])
-            name = (getattr(i, "contact_name", "") or "").strip() or user.email.split("@")[0]
-            if user.email:
-                send_status_email(user.email, name, "Institution")
-            return Response({"id": user.id, "role": "INSTITUTION", "status": i.status}, status=200)
+            inst = user.institution
+            inst.status = status_choice
+            inst.save(update_fields=["status"])
+            if status_choice == Institution.Status.APPROVED:
+                institution_approved(inst)  # Auto-deploys contract
+            return Response(
+                {
+                    "id": user.id,
+                    "role": "INSTITUTION",
+                    "status": inst.status,
+                    "institution_id": inst.institution_id,
+                    "contract_address": inst.contract_address,
+                },
+                status=status.HTTP_200_OK,
+            )
 
-        return Response({"message": "No moderatable profile for this user."}, status=400)
+        return Response(
+            {"message": "No moderatable profile found"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
 
-# ---------- Password reset ----------
+# ============================================================
+# Password Reset
+# ============================================================
+
 @extend_schema_view(
     request_link=extend_schema(
-        tags=["1. Accounts"],
-        summary="09. Request Password Reset",
+        tags=["Accounts"],
+        summary="Request Password Reset",
         request=PasswordResetRequestSerializer,
-        operation_id="09_accounts_password_request",
     ),
     confirm=extend_schema(
-        tags=["1. Accounts"],
-        summary="10. Confirm Password Reset",
+        tags=["Accounts"],
+        summary="Confirm Password Reset",
         request=PasswordResetConfirmSerializer,
-        operation_id="10_accounts_password_confirm",
     ),
 )
 class PasswordViewSet(viewsets.GenericViewSet):
-    """Routes: POST /password/request, POST /password/confirm."""
+    """Password reset endpoints."""
+    
     queryset = User.objects.none()
 
     @action(methods=["post"], detail=False, url_path="request", permission_classes=[AllowAny])
@@ -281,11 +319,17 @@ class PasswordViewSet(viewsets.GenericViewSet):
         ser = PasswordResetRequestSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.save(frontend_base=getattr(settings, "FRONTEND_RESET_URL", "http://localhost:5173/reset-password"))
-        return Response({"detail": "If the email exists, a reset link was sent."}, status=200)
+        return Response(
+            {"detail": "If email exists, reset link was sent."},
+            status=status.HTTP_200_OK
+        )
 
     @action(methods=["post"], detail=False, url_path="confirm", permission_classes=[AllowAny])
     def confirm(self, request):
         ser = PasswordResetConfirmSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         ser.save()
-        return Response({"detail": "Password has been reset."}, status=200)
+        return Response(
+            {"detail": "Password reset successful."},
+            status=status.HTTP_200_OK
+        )

@@ -32,7 +32,7 @@ import ApplicantHome from "./Pages/ApplicantRole/ApplicantHome";
 import MyCertificatesPage from "./Pages/ApplicantRole/MyCertificatesPage";
 import AccessRequestsApplicant from "./Pages/ApplicantRole/AccessRequests";
 import AccessCertificates from "./Pages/ApplicantRole/AccessCertificates";
-import MyApplicantCertificateDetails from "./Pages/ApplicantRole/MyApplicantCertificateDetails"; // <-- ADD
+import MyApplicantCertificateDetails from "./Pages/ApplicantRole/MyApplicantCertificateDetails";
 
 /* ---------- Institution role ---------- */
 import UploadCertificate from "./Pages/InstitutionRole/UploadCertificate";
@@ -99,7 +99,7 @@ export default function App() {
           }
         />
         <Route
-          path="/applicant/certificates/:id" // <-- ADD
+          path="/applicant/certificates/:id"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["applicant"]}>
@@ -203,7 +203,7 @@ export default function App() {
           }
         />
         <Route
-          path="/institution/upload/success/:applicantId"
+          path="/institution/success"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["institution"]}>

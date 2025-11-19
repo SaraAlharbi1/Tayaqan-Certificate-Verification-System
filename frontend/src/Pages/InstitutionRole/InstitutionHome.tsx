@@ -1,14 +1,41 @@
-// src/pages/institution/InstitutionDashboard.tsx
+// --------------------------------------------
+// Imports
+// --------------------------------------------
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { University, FileText, Upload, LogOut } from "lucide-react";
-import { me, logout } from "@/lib/auth";
+
+import { me, logout, getProfile } from "@/lib/auth";
 import type { MeResponse } from "@/lib/types";
 
+// --------------------------------------------
+// Component
+// --------------------------------------------
 export default function InstitutionDashboard() {
   const [userData, setUserData] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  // Load authenticated profile instantly (from localStorage/session)
+  const profile = getProfile();
+
+  // Safe fallbacks
+  const institutionName =
+    profile?.profile?.institution_name ||
+    profile?.institution_name ||
+    "Institution";
+
+  const email =
+    profile?.profile?.official_email ||
+    profile?.email ||
+    "N/A";
+
+  const phone =
+    profile?.profile?.phone ||
+    profile?.phone ||
+    "N/A";
+
+  const status = profile?.status || "PENDING";
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -29,6 +56,11 @@ export default function InstitutionDashboard() {
     navigate("/", { replace: true });
   };
 
+  const showStatusBanner = status && status !== "APPROVED";
+
+  // --------------------------------------------
+  // Loading skeleton
+  // --------------------------------------------
   if (loading) {
     return (
       <section className="max-w-6xl mx-auto px-6 py-10">
@@ -43,15 +75,12 @@ export default function InstitutionDashboard() {
     );
   }
 
-  const institutionName = (userData?.profile?.institution_name as string) || "Institution";
-  const email = (userData?.profile?.official_email as string) || userData?.email || "N/A";
-  const phone = (userData?.profile?.phone as string) || "N/A";
-  const status = userData?.status || "PENDING";
-  const showStatusBanner = status && status !== "APPROVED";
-
+  // --------------------------------------------
+  // Render
+  // --------------------------------------------
   return (
     <section className="max-w-6xl mx-auto px-6 py-10">
-      {/* Welcome header with logout button */}
+      {/* Header */}
       <div className="mb-10 flex items-start justify-between">
         <div>
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
@@ -74,22 +103,38 @@ export default function InstitutionDashboard() {
         </button>
       </div>
 
-      {/* Status banner */}
+      {/* Pending/Rejected Banner */}
       {showStatusBanner && (
         <div
           className={`mb-8 p-6 rounded-2xl border-2 ${
-            status === "PENDING" ? "bg-yellow-50 border-yellow-200" : "bg-red-50 border-red-200"
+            status === "PENDING"
+              ? "bg-yellow-50 border-yellow-200"
+              : "bg-red-50 border-red-200"
           }`}
         >
           <div className="flex items-start gap-4">
-            <div className={`p-3 rounded-full ${status === "PENDING" ? "bg-yellow-500" : "bg-red-500"}`}>
+            <div
+              className={`p-3 rounded-full ${
+                status === "PENDING" ? "bg-yellow-500" : "bg-red-500"
+              }`}
+            >
               <University className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h3 className={`text-lg font-bold mb-1 ${status === "PENDING" ? "text-yellow-900" : "text-red-900"}`}>
-                {status === "PENDING" ? "Account Pending Approval" : "Account Rejected"}
+              <h3
+                className={`text-lg font-bold mb-1 ${
+                  status === "PENDING" ? "text-yellow-900" : "text-red-900"
+                }`}
+              >
+                {status === "PENDING"
+                  ? "Account Pending Approval"
+                  : "Account Rejected"}
               </h3>
-              <p className={status === "PENDING" ? "text-yellow-700" : "text-red-700"}>
+              <p
+                className={
+                  status === "PENDING" ? "text-yellow-700" : "text-red-700"
+                }
+              >
                 {status === "PENDING"
                   ? "Your institution account is currently under review. You'll be notified once it's approved."
                   : "Your institution account was not approved. Please contact support for more information."}
@@ -99,7 +144,7 @@ export default function InstitutionDashboard() {
         </div>
       )}
 
-      {/* Institution profile info */}
+      {/* Institution Info */}
       {userData && (
         <div className="mb-8 p-6 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 to-purple-50">
           <div className="flex items-start gap-4">
@@ -107,11 +152,15 @@ export default function InstitutionDashboard() {
               <University className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-              <h2 className="text-xl font-bold text-gray-900 mb-3">Institution Information</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-3">
+                Institution Information
+              </h2>
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Institution Name</p>
-                  <p className="font-semibold text-gray-900">{institutionName}</p>
+                  <p className="font-semibold text-gray-900">
+                    {institutionName}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Email</p>
@@ -127,11 +176,14 @@ export default function InstitutionDashboard() {
         </div>
       )}
 
-      {/* Action cards */}
+      {/* Action Cards */}
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Certificates */}
         <Link
           to="/institution/certificates"
-          className={`group block ${status !== "APPROVED" ? "pointer-events-none opacity-50" : ""}`}
+          className={`group block ${
+            status !== "APPROVED" ? "pointer-events-none opacity-50" : ""
+          }`}
         >
           <div className="relative h-full rounded-2xl bg-white border border-gray-200 shadow-sm transition-all duration-300 hover:shadow-xl hover:border-indigo-300 p-8 overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/0 to-indigo-100/0 group-hover:from-indigo-50/50 group-hover:to-indigo-100/30 transition-all duration-300 rounded-2xl"></div>
@@ -155,9 +207,12 @@ export default function InstitutionDashboard() {
           </div>
         </Link>
 
+        {/* Upload */}
         <Link
           to="/institution/upload"
-          className={`group block ${status !== "APPROVED" ? "pointer-events-none opacity-50" : ""}`}
+          className={`group block ${
+            status !== "APPROVED" ? "pointer-events-none opacity-50" : ""
+          }`}
         >
           <div className="relative h-full rounded-2xl bg-white border border-gray-200 shadow-sm transition-all duration-300 hover:shadow-xl hover:border-purple-300 p-8 overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-purple-50/0 to-purple-100/0 group-hover:from-purple-50/50 group-hover:to-purple-100/30 transition-all duration-300 rounded-2xl"></div>

@@ -1,63 +1,58 @@
-// src/pages/institution/UploadSuccess.tsx
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle, FileText, Upload, Home } from "lucide-react";
 import { api } from "@/lib/api";
 
 type SuccessState = {
-  id?: string | number;
+  certificate_id?: number;
   txHash?: string;
   blockNumber?: number;
-  cid?: string;
 };
 
 type CertDetail = {
   id: number;
   display_label: string | null;
   issued_on: string | null;
-  serial_number: string | null;
+  applicant_full_name?: string;
+  applicant_national_id_plain?: string;
 };
 
-const ETHERSCAN_BASE = "https://sepolia.etherscan.io";
-const normalizeTx = (h?: string) => {
-  if (!h) return null;
-  const s = h.startsWith("0x") ? h.slice(2) : h;
-  return /^[0-9a-fA-F]{64}$/.test(s) ? ("0x" + s.toLowerCase()) : null;
-};
-const txUrl = (tx?: string | null) => (tx ? `${ETHERSCAN_BASE}/tx/${tx}` : null);
-const blockUrl = (n?: number) =>
-  typeof n === "number" && !Number.isNaN(n) ? `${ETHERSCAN_BASE}/block/${n}` : null;
+// ✅ Etherscan helpers
+const ETHERSCAN_BASE = "https://etherscan.io";
+const txUrl = (hash: string) => `${ETHERSCAN_BASE}/tx/${hash}`;
+const blockUrl = (num: number) => `${ETHERSCAN_BASE}/block/${num}`;
 
 export default function UploadSuccess() {
-  const { applicantId = "" } = useParams<{ applicantId: string }>();
   const location = useLocation();
-  const { id, txHash, blockNumber, cid } = (location.state || {}) as SuccessState;
+  const { certificate_id, txHash, blockNumber } =
+    (location.state || {}) as SuccessState;
 
   const certId = useMemo(
-    () => (typeof id === "number" ? id : id ? Number(id) : undefined),
-    [id]
+    () => (certificate_id ? Number(certificate_id) : undefined),
+    [certificate_id]
   );
 
   const [details, setDetails] = useState<CertDetail | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!certId) return;
     let abort = false;
     setLoading(true);
-    setLoadError(null);
+    setError(null);
 
-    api<CertDetail>(`/institution/certificates/${encodeURIComponent(String(certId))}/`, {
-      method: "GET",
-    })
+    api<CertDetail>(`/certificates/institution/${certId}/`, { method: "GET" })
       .then((data) => {
-        if (!abort) setDetails(data);
+        if (!abort) {
+          console.log("✅ Certificate loaded:", data);
+          setDetails(data);
+        }
       })
-      .catch((err: any) => {
-        if (abort) return;
-        const msg = err?.userMessage || err?.message || "Failed to load certificate.";
-        setLoadError(String(msg));
+      .catch((err) => {
+        console.error("❌ Failed to load certificate:", err);
+        if (!abort) {
+          setError(err?.userMessage || "Failed to load certificate details");
+        }
       })
       .finally(() => {
         if (!abort) setLoading(false);
@@ -72,214 +67,201 @@ export default function UploadSuccess() {
     if (!iso) return "—";
     try {
       const d = new Date(iso + "T00:00:00");
-      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+      return d.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+      });
     } catch {
       return iso;
     }
   };
 
-  const txNorm = normalizeTx(txHash);
-  const txHref = txUrl(txNorm);
-  const blockHref = blockUrl(blockNumber);
-
   return (
-    <section className="pt-0 pb-6">
-      <div className="auth-wrap">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Certificate{" "}
-            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              Uploaded Successfully
-            </span>
+    <section className="min-h-screen bg-white py-12 px-4">
+      <div className="max-w-3xl mx-auto">
+        
+        {/* Success Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-4">
+            <svg className="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Certificate Issued Successfully!
           </h1>
-          <p className="mt-1 text-gray-500">
-            Your certificate has been issued and recorded on the blockchain
+          <p className="text-gray-600">
+            Your certificate has been recorded on the blockchain
           </p>
         </div>
 
-        {!certId && (
-          <div className="mb-6 rounded-xl border-2 border-yellow-200 bg-yellow-50 p-4">
-            <div className="flex items-start gap-3">
-              <svg className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-yellow-900">Certificate ID Not Found</p>
-                <p className="mt-1 text-sm text-yellow-700">
-                  Couldn't find the new certificate ID (page may have been refreshed). Check the certificates dashboard.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Details Card */}
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden mb-6">
+          
+          {/* Certificate Info */}
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Certificate Information
+            </h2>
 
-        <div className="mb-6 rounded-2xl border-emerald-200 border-2 bg-gradient-to-r from-emerald-50 to-green-50 p-6">
-          <div className="flex items-start gap-4">
-            <div className="p-3 rounded-full bg-emerald-500">
-              <CheckCircle className="w-8 h-8 text-white" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-xl font-bold text-emerald-900 mb-2">Upload Complete!</h2>
-              <p className="text-emerald-800 text-base leading-relaxed">
-                Certificate for applicant <span className="font-semibold">{applicantId || "—"}</span> has been issued.
+            {loading ? (
+              <div className="space-y-3">
+                <div className="h-4 bg-gray-200 rounded animate-pulse"></div>
+                <div className="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div>
+              </div>
+            ) : error ? (
+              <div className="text-sm text-red-600 bg-red-50 p-3 rounded">
+                {error}
+              </div>
+            ) : details ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Title</label>
+                  <p className="text-base font-semibold text-gray-900">
+                    {details.display_label || "—"}
+                  </p>
+                </div>
+
+                {details.applicant_full_name && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Issued To</label>
+                    <p className="text-base text-gray-900">
+                      {details.applicant_full_name}
+                    </p>
+                  </div>
+                )}
+
+                {details.applicant_national_id_plain && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">National ID</label>
+                    <p className="text-base font-mono text-gray-900">
+                      {details.applicant_national_id_plain}
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Issue Date</label>
+                  <p className="text-base text-gray-900">
+                    {niceDate(details.issued_on)}
+                  </p>
+                </div>
+
+                {certId && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Certificate ID</label>
+                    <p className="text-base font-mono text-indigo-600 font-semibold">
+                      #{certId}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                No certificate details available
               </p>
+            )}
+          </div>
+
+          {/* Blockchain Info */}
+          <div className="p-6 bg-gray-50">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Blockchain Details
+            </h2>
+
+            <div className="space-y-3">
+              {txHash ? (
+                <div>
+                  <label className="text-sm font-medium text-gray-600 block mb-1">
+                    Transaction Hash
+                  </label>
+                  <div className="bg-white rounded border border-gray-200 px-3 py-2">
+                    <a
+                      href={txUrl(txHash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-mono break-all text-indigo-600 hover:text-indigo-800 underline"
+                    >
+                      {txHash}
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-sm font-medium text-gray-600 block mb-1">
+                    Transaction Hash
+                  </label>
+                  <div className="bg-white rounded border border-gray-200 px-3 py-2">
+                    <p className="text-xs text-gray-500">Not available</p>
+                  </div>
+                </div>
+              )}
+
+              {typeof blockNumber === "number" ? (
+                <div>
+                  <label className="text-sm font-medium text-gray-600 block mb-1">
+                    Block Number
+                  </label>
+                  <div className="bg-white rounded border border-gray-200 px-3 py-2">
+                    <a
+                      href={blockUrl(blockNumber)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-mono text-indigo-600 hover:text-indigo-800 underline"
+                    >
+                      #{blockNumber}
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-sm font-medium text-gray-600 block mb-1">
+                    Block Number
+                  </label>
+                  <div className="bg-white rounded border border-gray-200 px-3 py-2">
+                    <p className="text-sm text-gray-500">Not available</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          {(txHash || cid || typeof blockNumber === "number") && (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-              <div className="border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 px-6 py-4">
-                <h3 className="text-lg font-bold text-gray-900">Blockchain Details</h3>
-                <p className="mt-1 text-sm text-gray-600">Immutable proof of issuance</p>
-              </div>
-              <div className="p-6 space-y-4">
-                {cid && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Content ID (CID)</label>
-                    <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm text-gray-800 font-mono break-all">
-                      {cid}
-                    </div>
-                  </div>
-                )}
-                {txHash && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Transaction Hash</label>
-                    {txHref ? (
-                      <a
-                        href={txHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm font-mono break-all text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-1"
-                      >
-                        {txNorm}
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </a>
-                    ) : (
-                      <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm font-mono break-all">
-                        {txHash}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {typeof blockNumber === "number" && !Number.isNaN(blockNumber) && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">Block Number</label>
-                    {blockHref ? (
-                      <a
-                        href={blockHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full inline-flex items-center gap-1 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm font-mono text-indigo-600 hover:text-indigo-800 hover:underline"
-                      >
-                        {blockNumber}
-                      </a>
-                    ) : (
-                      <div className="w-full rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-sm font-mono">
-                        {blockNumber}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {certId && (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-              <div className="border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 px-6 py-4">
-                <h3 className="text-lg font-bold text-gray-900">Certificate Information</h3>
-                <p className="mt-1 text-sm text-gray-600">Details about the issued certificate</p>
-              </div>
-              <div className="p-6">
-                {loading ? (
-                  <div className="flex items-center gap-3 text-gray-600">
-                    <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Loading certificate details…
-                  </div>
-                ) : loadError ? (
-                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                    <p className="font-semibold">Error loading certificate</p>
-                    <p className="mt-1">{loadError}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">Certificate Title</label>
-                      <p className="text-gray-900">{details?.display_label || "—"}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">Issue Date</label>
-                      <p className="text-gray-900">{niceDate(details?.issued_on ?? null)}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">Serial Number</label>
-                      <p className="text-gray-900 font-mono text-sm">{details?.serial_number || "—"}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          <Link to="/institution/upload" className="group relative h-full rounded-xl bg-white border-2 border-purple-200 hover:border-purple-300 shadow-sm transition-all duration-300 hover:shadow-lg p-6 overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-50/0 to-purple-100/0 group-hover:from-purple-50/50 group-hover:to-purple-100/30 transition-all duration-300 rounded-xl"></div>
-            <div className="relative z-10 flex flex-col items-center text-center">
-              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-purple-100 text-purple-600 mb-3 group-hover:bg-purple-600 group-hover:text-white transition-all duration-300">
-                <Upload className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 group-hover:text-purple-600 transition-colors">Upload Another</h3>
-              <p className="text-sm text-gray-600 mt-1">Issue more certificates</p>
-            </div>
+        {/* Action Buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Link
+            to="/institution/upload"
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+            </svg>
+            Upload Another
           </Link>
 
-          <Link to="/institution/certificates" className="group relative h-full rounded-xl bg-white border-2 border-indigo-200 hover:border-indigo-300 shadow-sm transition-all duration-300 hover:shadow-lg p-6 overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/0 to-indigo-100/0 group-hover:from-indigo-50/50 group-hover:to-indigo-100/30 transition-all duration-300 rounded-xl"></div>
-            <div className="relative z-10 flex flex-col items-center text-center">
-              <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 mb-3 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
-                <FileText className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors">View All Certificates</h3>
-              <p className="text-sm text-gray-600 mt-1">Browse issued certificates</p>
-            </div>
+          <Link
+            to="/institution/certificates"
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            View All
           </Link>
 
-          {certId != null && !Number.isNaN(certId) ? (
-            <Link to={`/institution/certificates/${encodeURIComponent(String(certId))}`} className="group relative h-full rounded-xl bg-white border-2 border-emerald-200 hover:border-emerald-300 shadow-sm transition-all duration-300 hover:shadow-lg p-6 overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/0 to-emerald-100/0 group-hover:from-emerald-50/50 group-hover:to-emerald-100/30 transition-all duration-300 rounded-xl"></div>
-              <div className="relative z-10 flex flex-col items-center text-center">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 mb-3 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300">
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-bold text-gray-900 group-hover:text-emerald-600 transition-colors">View This Certificate</h3>
-                <p className="text-sm text-gray-600 mt-1">See full details</p>
-              </div>
-            </Link>
-          ) : (
-            <Link to="/institution" className="group relative h-full rounded-xl bg-white border-2 border-gray-200 hover:border-gray-300 shadow-sm transition-all duration-300 hover:shadow-lg p-6 overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-gray-50/0 to-gray-100/0 group-hover:from-gray-50/50 group-hover:to-gray-100/30 transition-all duration-300 rounded-xl"></div>
-              <div className="relative z-10 flex flex-col items-center text-center">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gray-100 text-gray-600 mb-3 group-hover:bg-gray-600 group-hover:text-white transition-all duration-300">
-                  <Home className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900 group-hover:text-gray-600 transition-colors">Dashboard</h3>
-                <p className="text-sm text-gray-600 mt-1">Return to home</p>
-              </div>
-            </Link>
-          )}
+          <Link
+            to="/institution"
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+            Dashboard
+          </Link>
         </div>
+
       </div>
     </section>
   );

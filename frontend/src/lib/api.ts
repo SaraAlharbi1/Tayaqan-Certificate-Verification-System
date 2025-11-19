@@ -1,13 +1,23 @@
-/** lib/api.ts */
+/**
+ * lib/api.ts
+ * Production-ready API helper with JWT auto-refresh.
+ */
+
 import {
   getAccessToken,
   setAccessToken,
   getRefreshToken,
-  setRefreshToken, // handle rotated refresh tokens
+  setRefreshToken,
   clearTokens,
 } from "./storage";
 
-const BASE_URL = "http://127.0.0.1:8000/api";
+/** Auto-detect backend URL */
+const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (location.hostname === "localhost"
+    ? "http://127.0.0.1:8000/api"
+    : "https://your-production-domain.com/api");
+
 let refreshInFlight: Promise<string | null> | null = null;
 
 export type ApiError = Error & {
@@ -19,27 +29,31 @@ export type ApiError = Error & {
   response: { status: number; data: any };
 };
 
+/* ------------------ REFRESH LOGIC ------------------ */
+
 async function refreshAccessToken(): Promise<string | null> {
   const refresh = getRefreshToken();
   if (!refresh) return null;
 
-  const resp = await fetch(`${BASE_URL}/auth/refresh/`, {
+  const res = await fetch(`${BASE_URL}/auth/refresh/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh }),
   });
-  if (!resp.ok) return null;
 
-  // SimpleJWT may return { access, refresh? } when ROTATE_REFRESH_TOKENS=True
-  const data = (await resp.json()) as { access: string; refresh?: string };
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as { access: string; refresh?: string };
   setAccessToken(data.access);
   if (data.refresh) setRefreshToken(data.refresh);
+
   return data.access;
 }
 
+/* ------------------ HELPERS ------------------ */
+
 function buildHeaders(init: RequestInit, access?: string) {
   const h: Record<string, string> = {};
-  // Only set JSON content-type when NOT sending FormData
   if (!(init.body instanceof FormData)) h["Content-Type"] = "application/json";
   if (access) h["Authorization"] = `Bearer ${access}`;
   if (init.headers) Object.assign(h, init.headers as Record<string, string>);
@@ -49,6 +63,7 @@ function buildHeaders(init: RequestInit, access?: string) {
 async function parseJsonSafe(res: Response): Promise<any> {
   const ct = res.headers.get("content-type") || "";
   if (res.status === 204 || !ct.includes("application/json")) return null;
+
   try {
     return await res.json();
   } catch {
@@ -56,57 +71,57 @@ async function parseJsonSafe(res: Response): Promise<any> {
   }
 }
 
-function buildApiError(res: Response, data: any, fallbackText: string): ApiError {
-  const code = data?.code ?? data?.error;
-  const userMessage =
-    data?.user_message ?? data?.detail ?? data?.error ?? fallbackText ?? res.statusText;
+function buildApiError(res: Response, data: any, text: string): ApiError {
+  const err = new Error(
+    data?.user_message || data?.detail || data?.error || text || res.statusText
+  ) as ApiError;
 
-  const err = new Error(userMessage) as ApiError;
-  (err as any).status = res.status;
   err.status = res.status;
-  err.code = code;
-  err.userMessage = userMessage;
-  err.detail = data?.detail ?? undefined;
+  err.code = data?.code;
+  err.userMessage =
+    data?.user_message || data?.detail || data?.error || text || "Request failed";
+  err.detail = data?.detail;
   err.data = data;
   err.response = { status: res.status, data };
+
   return err;
 }
 
-/** JSON-first helper. */
+/* ------------------ MAIN JSON API ------------------ */
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const access = getAccessToken() || undefined;
+
   const doFetch = (token?: string) =>
     fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(init, token) });
 
-  // 1st attempt
   let res = await doFetch(access);
-  if (res.ok) {
-    const data = await parseJsonSafe(res);
-    return (data ?? (undefined as unknown)) as T;
-  }
 
-  // Refresh on 401 and retry once
+  if (res.ok) return (await parseJsonSafe(res)) as T;
+
+  /* Auto-refresh JWT */
   if (res.status === 401) {
     if (!refreshInFlight)
       refreshInFlight = refreshAccessToken().finally(() => (refreshInFlight = null));
+
     const newAccess = await refreshInFlight;
+
     if (newAccess) {
       const retry = await doFetch(newAccess);
-      if (retry.ok) {
-        const data = await parseJsonSafe(retry);
-        return (data ?? (undefined as unknown)) as T;
-      }
+      if (retry.ok) return (await parseJsonSafe(retry)) as T;
+
       const retryText = await retry.text().catch(() => "");
-      let retryData: any = null;
+      let retryJson: any = null;
       try {
-        retryData = retryText ? JSON.parse(retryText) : null;
+        retryJson = retryText ? JSON.parse(retryText) : null;
       } catch {}
-      throw buildApiError(retry, retryData, retryText);
+      throw buildApiError(retry, retryJson, retryText);
     }
+
     clearTokens();
   }
 
-  // Normalize error
+  /* Final error */
   const text = await res.text().catch(() => "");
   let data: any = null;
   try {
@@ -115,45 +130,19 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   throw buildApiError(res, data, text);
 }
 
-/** Raw fetch with same auth + auto-refresh (use for non-JSON). */
-export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const access = getAccessToken() || undefined;
-  const doFetch = (token?: string) =>
-    fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(init, token) });
+/* ------------------ FILE DOWNLOAD API ------------------ */
 
-  // 1st attempt
-  let res = await doFetch(access);
-  if (res.ok) return res;
-
-  // Refresh on 401 and retry once
-  if (res.status === 401) {
-    if (!refreshInFlight)
-      refreshInFlight = refreshAccessToken().finally(() => (refreshInFlight = null));
-    const newAccess = await refreshInFlight;
-    if (newAccess) {
-      const retry = await doFetch(newAccess);
-      if (retry.ok) return retry;
-
-      const retryText = await retry.text().catch(() => "");
-      let retryData: any = null;
-      try {
-        retryData = retryText ? JSON.parse(retryText) : null;
-      } catch {}
-      throw buildApiError(retry, retryData, retryText);
-    }
-    clearTokens();
-  }
-
-  const text = await res.text().catch(() => "");
-  let data: any = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {}
-  throw buildApiError(res, data, text);
-}
-
-/** Convenience wrapper for blobs (PDFs, images, etc.). */
 export async function apiBlob(path: string, init: RequestInit = {}): Promise<Blob> {
-  const res = await apiFetch(path, init);
+  const access = getAccessToken() || undefined;
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...init,
+    headers: buildHeaders(init, access),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || "Failed to load file");
+  }
+
   return res.blob();
 }

@@ -1,150 +1,230 @@
-# backend/api/certificates/serializers.py
-from __future__ import annotations
+"""Serializers for certificate issuance and retrieval."""
 
 from rest_framework import serializers
-
-# Adjust these imports to your actual app layout
-from .models import Certificate  # Certificate has FKs: applicant, institution
-
-
-# ========== Common related-field helpers ==========
-
-class ApplicantMiniSerializer(serializers.Serializer):
-    full_name = serializers.CharField(read_only=True)
-    national_id_plain = serializers.CharField(read_only=True)
+from .models import Certificate
+from .validators import validate_pdf_file
 
 
-class InstitutionMiniSerializer(serializers.Serializer):
-    institution_name = serializers.CharField(read_only=True)
+# ================================
+# Institution: Issue Certificate
+# ================================
+
+class PrepareIssueSerializer(serializers.Serializer):
+    """
+    Step 1: Upload PDF + prepare blockchain data.
+    Institution gets hash to sign with MetaMask.
+    """
+    national_id = serializers.CharField(max_length=20)
+    full_name = serializers.CharField(max_length=255)
+    title = serializers.CharField(max_length=500)
+    certificate_type = serializers.CharField(max_length=255)  # ← ADD THIS
+    issued_on = serializers.DateField(required=False, allow_null=True)
+    pdf_file = serializers.FileField()
+
+    def validate_pdf_file(self, value):
+        validate_pdf_file(value)
+        return value
 
 
-# ========== Institution: LIST ==========
+class ConfirmIssueSerializer(serializers.Serializer):
+    """
+    Step 2: Confirm blockchain transaction.
+    Saves certificate to database with blockchain proof.
+    """
+    national_id = serializers.CharField(max_length=20)
+    title = serializers.CharField(max_length=500)
+    certificate_type = serializers.CharField(max_length=255)  # ← ADD THIS
+    issued_on = serializers.DateField(required=False, allow_null=True)
+    cid = serializers.CharField(max_length=255)
+    file_hash = serializers.CharField(max_length=66)
+    applicant_id_hash = serializers.CharField(max_length=66)
+    contract_address = serializers.CharField(max_length=42)
+    tx_hash = serializers.CharField(max_length=66)
+    block_number = serializers.IntegerField(required=False, allow_null=True)
+
+
+# ================================
+# Institution: List/Detail
+# ================================
 
 class CertificateListSerializer(serializers.ModelSerializer):
     """
-    Used by: GET /institution/certificates/
-    - Adds applicant_full_name and national_id_plain for the table
-    - Adds institution_name for completeness
+    List view for institution's issued certificates.
+    Includes basic info + blockchain status.
     """
-    applicant_full_name = serializers.CharField(source="applicant.full_name", read_only=True)
-    national_id_plain = serializers.CharField(source="applicant.national_id_plain", read_only=True)
-    institution_name = serializers.CharField(source="institution.institution_name", read_only=True)
+    applicant_full_name = serializers.CharField(source="applicant.full_name")
+    applicant_national_id_plain = serializers.SerializerMethodField()
+    institution_name = serializers.CharField(source="institution.institution_name")
 
     class Meta:
         model = Certificate
         fields = (
             "id",
-            "display_label",          # title on FE
-            "serial_number",
+            "display_label",
             "issued_on",
-            "file_hash",
-            # added for FE table:
             "applicant_full_name",
-            "national_id_plain",
+            "applicant_national_id_plain",
             "institution_name",
+            "file_hash",
+            "contract_address",
+            "tx_hash",
+            "block_number",
+            "created_at",
         )
+    
+    def get_applicant_national_id_plain(self, obj):
+        """Get national ID from denormalized field or applicant relation."""
+        return obj.national_id_plain or obj.applicant.national_id_plain
 
-
-# ========== Institution: DETAIL ==========
 
 class CertificateDetailSerializer(serializers.ModelSerializer):
     """
-    Used by: GET /institution/certificates/{id}/
-    - Provides fields the FE normalizer expects:
-        title/display_label, issued_on, serial_number
-        applicant_full_name / national_id_plain
-        issuer/institution name
-        chain meta if you annotate it in the ViewSet (status/tx/revoke…)
+    Detail view for institution.
+    Includes all certificate data + blockchain proof.
     """
-    # Applicant
-    applicant_full_name = serializers.CharField(source="applicant.full_name", read_only=True)
-    national_id_plain = serializers.CharField(source="applicant.national_id_plain", read_only=True)
-
-    # Institution (issuer)
-    institution_name = serializers.CharField(source="institution.institution_name", read_only=True)
-
-    # Optional on-chain meta (these may be annotated in queryset or returned via @action)
-    status = serializers.CharField(read_only=True, required=False)
-    tx_hash = serializers.CharField(read_only=True, required=False, allow_null=True)
-    block_number = serializers.IntegerField(read_only=True, required=False, allow_null=True)
-    revoke_tx_hash = serializers.CharField(read_only=True, required=False, allow_null=True)
-    revoke_block_number = serializers.IntegerField(read_only=True, required=False, allow_null=True)
+    applicant_full_name = serializers.CharField(source="applicant.full_name")
+    applicant_national_id_plain = serializers.SerializerMethodField()
+    applicant_wallet_address = serializers.CharField(source="applicant.wallet_address")
+    institution_name = serializers.CharField(source="institution.institution_name")
+    institution_id = serializers.CharField(source="institution.institution_id")
 
     class Meta:
         model = Certificate
         fields = (
             "id",
-            "display_label",          # FE maps to title
-            "serial_number",
+            "display_label",
             "issued_on",
-            "file_hash",
-
-            # parties
             "applicant_full_name",
-            "national_id_plain",
+            "applicant_national_id_plain",
+            "applicant_wallet_address",
             "institution_name",
-
-            # optional chain/meta (if annotated)
-            "status",
+            "institution_id",
+            "file_hash",
+            "applicant_id_hash",
+            "contract_address",
             "tx_hash",
             "block_number",
-            "revoke_tx_hash",
-            "revoke_block_number",
+            "revoke_tx_hash",       # ✅ added
+            "revoke_block_number",  # ✅ added
+            "revoked_at",           # ✅ added
+            "created_at",
+            "updated_at",
         )
+    
+    def get_applicant_national_id_plain(self, obj):
+        return obj.national_id_plain or obj.applicant.national_id_plain
 
 
-# ========== Applicant: LIST/DETAIL (optional) ==========
+# ================================
+# Applicant: My Certificates
+# ================================
 
 class MyCertificateListSerializer(serializers.ModelSerializer):
     """
-    If you list applicant-owned certs at /my/certificates/.
-    Keep minimal — FE only needs id, title/display_label, serial, issue date.
+    List view for applicant's certificates.
+    Shows who issued it and blockchain status.
     """
-    title = serializers.CharField(source="display_label", read_only=True)
+    institution_name = serializers.CharField(source="institution.institution_name")
 
     class Meta:
         model = Certificate
-        fields = ("id", "title", "serial_number", "issued_on")
+        fields = (
+            "id",
+            "display_label",
+            "issued_on",
+            "institution_name",
+            "file_hash",
+            "tx_hash",
+            "block_number",
+            "created_at",
+        )
 
 
 class MyCertificateDetailSerializer(serializers.ModelSerializer):
     """
-    If you serve /my/certificates/{id}/ the FE expects:
-      - title (display_label), serial_number, issued_on
-      - issuer/institution name (issuerName)
-      - chain meta: status, tx_hash, block_number, revoke_* (if available)
-      - nested applicant (optional)
+    Detail view for applicant.
+    Full certificate info with blockchain proof.
     """
-    title = serializers.CharField(source="display_label", read_only=True)
-    issuerName = serializers.CharField(source="institution.institution_name", read_only=True)
-
-    # expose both flat and nested applicant info; FE will read either
-    applicant = ApplicantMiniSerializer(source="applicant", read_only=True)
-    national_id_plain = serializers.CharField(source="applicant.national_id_plain", read_only=True)
-
-    # optional chain/meta (if annotated in the view)
-    status = serializers.CharField(read_only=True, required=False)
-    tx_hash = serializers.CharField(read_only=True, required=False, allow_null=True)
-    block_number = serializers.IntegerField(read_only=True, required=False, allow_null=True)
-    revoke_tx_hash = serializers.CharField(read_only=True, required=False, allow_null=True)
-    revoke_block_number = serializers.IntegerField(read_only=True, required=False, allow_null=True)
+    institution_name = serializers.CharField(source="institution.institution_name")
+    institution_id = serializers.CharField(source="institution.institution_id")
+    applicant_national_id_plain = serializers.SerializerMethodField()
 
     class Meta:
         model = Certificate
         fields = (
             "id",
-            "title",
-            "serial_number",
+            "display_label",
             "issued_on",
+            "institution_name",
+            "institution_id",
+            "applicant_national_id_plain",
             "file_hash",
-
-            "issuerName",
-            "applicant",
-            "national_id_plain",
-
-            "status",
+            "applicant_id_hash",
+            "contract_address",
             "tx_hash",
             "block_number",
-            "revoke_tx_hash",
-            "revoke_block_number",
+            "revoke_tx_hash",       # ✅ added
+            "revoke_block_number",  # ✅ added
+            "revoked_at",           # ✅ added
+            "created_at",
         )
+    
+    def get_applicant_national_id_plain(self, obj):
+        return obj.national_id_plain or obj.applicant.national_id_plain
+
+
+# ================================
+# Blockchain Verification
+# ================================
+
+class VerifyBatchRequestSerializer(serializers.Serializer):
+    """
+    Request to verify multiple certificates on blockchain.
+    """
+    file_hashes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="List of certificate file hashes to verify"
+    )
+
+
+class CertificateVerificationSerializer(serializers.Serializer):
+    """
+    Blockchain verification result for a single certificate.
+    """
+    file_hash = serializers.CharField(help_text="Certificate hash (key in smart contract)")
+    exists = serializers.BooleanField(help_text="Certificate exists on blockchain")
+    certificate_type = serializers.CharField(help_text="Certificate type from blockchain")
+    issue_date = serializers.IntegerField(help_text="Issue timestamp from blockchain")
+    is_revoked = serializers.BooleanField(help_text="Certificate revoked status")
+
+
+class VerifyBatchResponseSerializer(serializers.Serializer):
+    """
+    Response from batch verification.
+    """
+    results = CertificateVerificationSerializer(many=True)
+
+
+# ================================
+# Revocation
+# ================================
+
+class RevokeRequestSerializer(serializers.Serializer):
+    """
+    Request to revoke a certificate (institution only).
+    """
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional reason for revocation"
+    )
+
+
+class RevokeResponseSerializer(serializers.Serializer):
+    """
+    Response from certificate revocation.
+    """
+    success = serializers.BooleanField()
+    tx_hash = serializers.CharField(required=False)
+    block_number = serializers.IntegerField(required=False)
+    error = serializers.CharField(required=False)

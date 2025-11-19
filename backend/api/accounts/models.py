@@ -1,16 +1,17 @@
-"""Domain models for Accounts (single auth table + role-specific profiles)."""
+"""Accounts models: User, Applicant, Employer, Institution."""
+
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 
 
 class UserManager(BaseUserManager):
-    """Authenticate by email (no username)."""
+    """Custom user manager with email as username."""
 
     use_in_migrations = True
 
     def create_user(self, email, password=None, **extra_fields):
         if not email:
-            raise ValueError("Email is required")
+            raise ValueError("Email required")
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         if password:
@@ -28,11 +29,7 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
-    """
-    Single authentication table.
-    - Use 'email' as the login field
-    - 'role' controls capabilities
-    """
+    """Auth user with role-based access."""
 
     class Roles(models.TextChoices):
         APPLICANT = "APPLICANT", "Applicant"
@@ -49,66 +46,58 @@ class User(AbstractUser):
 
     objects = UserManager()
 
-    def __str__(self) -> str:
+    def __str__(self):
         return f"{self.email} ({self.role})"
 
 
 class Applicant(models.Model):
-    """
-    Applicant profile.
-    Keep both plain and hash:
-    - plain for UI + exact lookup
-    - hash (0x + 64) for on-chain and event comparisons
-    """
+    """Applicant with national ID and wallet."""
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="applicant")
     full_name = models.CharField(max_length=150)
-
+    
+    # National ID: plain for search, hash for blockchain
     national_id_plain = models.CharField(max_length=20, unique=True, db_index=True)
     national_id_hash = models.CharField(max_length=66, unique=True, db_index=True)
-
+    
+    wallet_address = models.CharField(max_length=42)
     phone = models.CharField(max_length=20, blank=True)
-
-    # Audit
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self) -> str:
-        return f"Applicant<{self.user.email}>"
+    def __str__(self):
+        return f"{self.full_name} ({self.national_id_plain})"
 
 
 class Employer(models.Model):
-    """Employer/HR profile with moderation lifecycle."""
+    """Employer requiring admin approval."""
 
     class Status(models.TextChoices):
-        PENDING = "PENDING", "Pending"   
-        APPROVED = "APPROVED", "Approved"  
-        REJECTED = "REJECTED", "Rejected"   
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employer")
-
-    full_name = models.CharField(max_length=150)   # contact person
-    work_email = models.EmailField()
+    full_name = models.CharField(max_length=150)
     company_name = models.CharField(max_length=200)
-
-    # Company identifier for UI/forms
-    cr_number_plain = models.CharField(max_length=50, unique=True, db_index=True)
-
+    official_email = models.EmailField()
     phone = models.CharField(max_length=20, blank=True)
-    proof_doc = models.FileField(upload_to="proofs/employers/", blank=True, null=True)
-
+    proof_doc = models.FileField(upload_to="proofs/employers/")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
-    status_notes = models.TextField(blank=True)
-
-    # Audit
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self) -> str:
-        return f"Employer<{self.company_name}:{self.user.email}>"
+    def __str__(self):
+        return f"{self.company_name} - {self.status}"
 
 
 class Institution(models.Model):
-    """Issuing institution profile with same moderation lifecycle as Employer."""
+    """
+    Institution with blockchain contract.
+    On approval: auto-deploys CertificateRegistry contract.
+    """
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -116,19 +105,44 @@ class Institution(models.Model):
         REJECTED = "REJECTED", "Rejected"
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="institution")
-
+    
+    # Basic info
     institution_name = models.CharField(max_length=200)
     official_email = models.EmailField()
-    department = models.CharField(max_length=150, blank=True)
     phone = models.CharField(max_length=20, blank=True)
-    proof_doc = models.FileField(upload_to="proofs/institutions/", blank=True, null=True)
-
+    wallet_address = models.CharField(max_length=42)
+    proof_doc = models.FileField(upload_to="proofs/institutions/")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
-    status_notes = models.TextField(blank=True)
-
-    # Audit
+    
+    # Blockchain data (auto-filled on approval)
+    institution_id = models.CharField(max_length=50, unique=True, blank=True, null=True, db_index=True)
+    contract_address = models.CharField(max_length=42, blank=True, null=True, unique=True)
+    deployed_at = models.DateTimeField(blank=True, null=True)
+    registered_in_registry = models.BooleanField(default=False)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self) -> str:
-        return f"Institution<{self.institution_name}:{self.user.email}>"
+    class Meta:
+        indexes = [
+            models.Index(fields=['institution_id']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.institution_name} ({self.institution_id or 'pending'})"
+    
+    def generate_institution_id(self):
+        """Generate unique ID from institution name (e.g., KSU-001)."""
+        if self.institution_id:
+            return self.institution_id
+        
+        # Extract first 3 letters
+        base = ''.join(filter(str.isalnum, self.institution_name))[:3].upper()
+        counter = 1
+        
+        while True:
+            candidate = f"{base}-{counter:03d}"
+            if not Institution.objects.filter(institution_id=candidate).exists():
+                return candidate
+            counter += 1

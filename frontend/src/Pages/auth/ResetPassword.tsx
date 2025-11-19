@@ -1,10 +1,18 @@
 // src/Pages/auth/ResetPasswordPage.tsx
+
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { useMemo, useState } from "react";
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (location.hostname === "localhost"
+    ? "http://127.0.0.1:8000/api"
+    : "https://your-production-domain.com/api");
 
 export default function ResetPasswordPage() {
   const [params] = useSearchParams();
   const nav = useNavigate();
+
   const uid = params.get("uid") || "";
   const token = params.get("token") || "";
   const validLink = useMemo(() => Boolean(uid && token), [uid, token]);
@@ -17,23 +25,26 @@ export default function ResetPasswordPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validLink || loading) return;
+
     setErr("");
     setLoading(true);
+
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/auth/password-reset/confirm/", {
+      const res = await fetch(`${API_BASE_URL}/accounts/password/confirm/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uid, token, new_password: pwd }),
       });
+
       if (res.ok) {
         setOk(true);
-        setTimeout(() => nav("/login"), 1200);
+        setTimeout(() => nav("/login"), 1500);
       } else {
         const data = await res.json().catch(() => ({}));
         setErr(data?.detail || "Invalid or expired link.");
       }
     } catch {
-      setErr("Network error. Try again.");
+      setErr("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -57,8 +68,18 @@ export default function ResetPasswordPage() {
 
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
               <div className="p-8 text-center">
-                <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                <svg
+                  className="w-16 h-16 mx-auto mb-4 text-gray-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
                 </svg>
                 <p className="text-gray-700 mb-6">
                   Please request a new password reset link.
@@ -89,10 +110,22 @@ export default function ResetPasswordPage() {
             {ok && (
               <div className="mb-6 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
                 <div className="flex items-start gap-3">
-                  <svg className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
-                  <p className="text-sm text-emerald-700">Password updated! Redirecting to login…</p>
+                  <p className="text-sm text-emerald-700">
+                    Password updated! Redirecting to login…
+                  </p>
                 </div>
               </div>
             )}
@@ -101,8 +134,18 @@ export default function ResetPasswordPage() {
             {err && (
               <div className="mb-6 rounded-xl border-2 border-red-200 bg-red-50 p-4">
                 <div className="flex items-start gap-3">
-                  <svg className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <svg
+                    className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                   <p className="text-sm text-red-700">{err}</p>
                 </div>
@@ -113,7 +156,10 @@ export default function ResetPasswordPage() {
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
               <form onSubmit={submit} className="p-6 space-y-5" noValidate>
                 <div>
-                  <label htmlFor="password" className="mb-2 block text-sm font-semibold text-gray-700">
+                  <label
+                    htmlFor="password"
+                    className="mb-2 block text-sm font-semibold text-gray-700"
+                  >
                     New Password
                   </label>
                   <input
@@ -130,7 +176,10 @@ export default function ResetPasswordPage() {
                 </div>
 
                 <div className="flex items-center justify-between pt-2">
-                  <Link to="/login" className="text-sm font-medium text-indigo-600 hover:text-indigo-700">
+                  <Link
+                    to="/login"
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                  >
                     Back to Sign In
                   </Link>
                   <button
@@ -140,9 +189,24 @@ export default function ResetPasswordPage() {
                   >
                     {loading ? (
                       <>
-                        <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        <svg
+                          className="animate-spin h-4 w-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
                         </svg>
                         Saving…
                       </>

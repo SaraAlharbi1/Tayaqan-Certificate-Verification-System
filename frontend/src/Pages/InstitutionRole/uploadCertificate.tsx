@@ -1,76 +1,144 @@
-﻿// src/Pages/InstitutionRole/UploadCertificate.tsx
-import { useRef, useState } from "react";
+﻿// --------------------------------------------
+// Imports
+// --------------------------------------------
+import { useRef, useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { getWalletAddress, getContractAddress } from "@/lib/auth";
+import { ethers } from "ethers";
 
+// --------------------------------------------
+// Constants & Helpers
+// --------------------------------------------
 const MAX_FILE_MB = 5;
-const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
 const nationalIdRegex = /^\d{10}$/;
 
-// file is NOT in schema; validated manually
+const isPdfByName = (name?: string) => !!name && /\.pdf$/i.test(name);
+
+const truncateAddress = (addr: string) => {
+  if (!addr) return "";
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+};
+
+// zod schema
 const schema = z.object({
-  nationalId: z.string().regex(nationalIdRegex, "Enter a valid National ID (10 digits)"),
-  fullName: z.string().min(2, "Full name is required"),
+  national_id: z.string().regex(nationalIdRegex, "Enter a valid National ID"),
+  full_name: z.string().min(2, "Full name is required"),
   title: z.string().min(2, "Certificate title is required"),
-  issueDate: z.string().min(1, "Issue date is required"),
-  serialNumber: z.string().min(1, "Serial number is required"),
+  certificate_type: z.string().min(2, "Certificate type is required"),
+  issued_on: z.string().optional(),
 });
+
 type FormValues = z.infer<typeof schema>;
 
-function UploadIllustration() {
-  return (
-    <div className="relative mb-3 h-20 w-20 flex items-center justify-center">
-      <div className="absolute inset-0 rounded-full bg-brand-50" aria-hidden="true" />
-      <svg className="relative h-10 w-10 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <path d="M7 16h10a4 4 0 0 0 .5-7.965A6 6 0 0 0 6 9a4 4 0 0 0 1 7z" />
-        <path d="M12 13V8" />
-        <path d="M9.5 10.5 12 8l2.5 2.5" />
-      </svg>
-      <div className="absolute inset-0 rounded-full border-2 border-dotted border-border" />
-    </div>
-  );
-}
+// ABI
+const CERTIFICATE_REGISTRY_ABI = [
+  "function issueCertificate(string fileHash, bytes32 applicantIdHash, string certificateType, uint256 issuedOn) external returns (uint256)",
+];
 
+// --------------------------------------------
+// Main Component
+// --------------------------------------------
 export default function UploadCertificate() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const institutionWallet = getWalletAddress();
+  const savedContractAddress = getContractAddress();
+
+  const [contractAddress, setContractAddress] = useState<string | null>(savedContractAddress);
   const [file, setFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [fileError, setFileError] = useState("");
   const [serverError, setServerError] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const [connectedWallet, setConnectedWallet] = useState<string | null>(null);
+  const [walletMismatch, setWalletMismatch] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema), mode: "onChange" });
+  } = useForm<FormValues>({ resolver: zodResolver(schema) });
 
+  // Load contract address if missing
+  useEffect(() => {
+    if (savedContractAddress) {
+      setContractAddress(savedContractAddress);
+      return;
+    }
+
+    (async () => {
+      try {
+        const res = await api<any>("/accounts/auth/me/");
+        const addr = res?.profile?.contract_address || null;
+        setContractAddress(addr);
+      } catch {
+        setContractAddress(null);
+      }
+    })();
+  }, [savedContractAddress]);
+
+  // Auto-connect MetaMask
+  useEffect(() => {
+    async function checkWallet() {
+      if (!window.ethereum) return;
+
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        await window.ethereum.request({ method: "eth_requestAccounts" });
+        const accounts = await window.ethereum.request({ method: "eth_accounts" });
+
+        const acc = accounts?.[0] || null;
+        setConnectedWallet(acc);
+
+        if (acc && institutionWallet) {
+          setWalletMismatch(acc.toLowerCase() !== institutionWallet.toLowerCase());
+        }
+      } catch (err) {
+        console.log("MetaMask connection error:", err);
+      }
+    }
+
+    checkWallet();
+    if (window.ethereum)
+      window.ethereum.on("accountsChanged", () => checkWallet());
+  }, [institutionWallet]);
+
+  // --------------------------------------------
+  // File Handling
+  // --------------------------------------------
   const pickFile = (files: FileList | null) => {
     const f = files?.[0] || null;
     setServerError("");
+
     if (!f) {
       setFile(null);
       setUploadName("");
       setFileError("Please upload a PDF");
       return;
     }
+
     const looksPdf = f.type === "application/pdf" || isPdfByName(f.name);
+
     if (!looksPdf) {
       setFile(null);
       setUploadName("");
       setFileError("Only PDF files are accepted");
       return;
     }
+
     if (f.size > MAX_FILE_MB * 1024 * 1024) {
       setFile(null);
       setUploadName("");
-      setFileError(`File must be â‰¤ ${MAX_FILE_MB}MB`);
+      setFileError(`File must be ≤ ${MAX_FILE_MB}MB`);
       return;
     }
+
     setFile(f);
     setUploadName(f.name);
     setFileError("");
@@ -84,199 +152,380 @@ export default function UploadCertificate() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const prevent = (e: React.DragEvent) => e.preventDefault();
-  const onDrop: React.DragEventHandler<HTMLLabelElement> = (e) => {
-    e.preventDefault();
-    pickFile(e.dataTransfer.files);
-  };
-
-  const mb = (n: number) => (n / (1024 * 1024)).toFixed(2);
-
+  // --------------------------------------------
+  // Submit Form
+  // --------------------------------------------
   const onSubmit = async (v: FormValues) => {
     setServerError("");
-    if (!file) {
-      setFileError("Please upload a PDF");
-      return;
-    }
-
-    // must match DRF field names
-    const fd = new FormData();
-    fd.append("national_id", v.nationalId); 
-    fd.append("display_label", v.title);
-    fd.append("issued_on", v.issueDate);
-    fd.append("serial_number", v.serialNumber);
-    fd.append("file", file);
+    setIsProcessing(true);
 
     try {
-      const res = await api<any>("/institution/certificates/issue/", { method: "POST", body: fd });
+      if (!file) {
+        setFileError("Please upload a PDF");
+        return;
+      }
 
-      clearFile();
-      navigate(`/institution/upload/success/${encodeURIComponent(v.nationalId)}`, {
+      if (!connectedWallet) {
+        setServerError("Connect MetaMask wallet.");
+        return;
+      }
+
+      if (!institutionWallet) {
+        setServerError("Institution wallet missing.");
+        return;
+      }
+
+      if (connectedWallet.toLowerCase() !== institutionWallet.toLowerCase()) {
+        setServerError("Wallet does not match institution wallet.");
+        return;
+      }
+
+      if (!contractAddress) {
+        setServerError("Institution contract not deployed.");
+        return;
+      }
+
+      // STEP 1 — PREPARE BACKEND
+      const fd = new FormData();
+      fd.append("national_id", v.national_id);
+      fd.append("full_name", v.full_name);
+      fd.append("title", v.title);
+      fd.append("certificate_type", v.certificate_type);
+      if (v.issued_on) fd.append("issued_on", v.issued_on);
+      fd.append("pdf_file", file);
+
+      const prepare = await api<any>("/certificates/institution/prepare/", {
+        method: "POST",
+        body: fd,
+      });
+
+      const { file_hash, applicant_id_hash, cid } = prepare.blockchain_data;
+
+      // STEP 2 — BLOCKCHAIN
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, CERTIFICATE_REGISTRY_ABI, signer);
+
+      const issuedOnTimestamp = v.issued_on
+        ? Math.floor(new Date(v.issued_on).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
+
+      const tx = await contract.issueCertificate(
+        file_hash,
+        applicant_id_hash,
+        v.certificate_type,
+        issuedOnTimestamp
+      );
+
+      const receipt = await tx.wait();
+
+      // STEP 3 — CONFIRM BACKEND (capture response with real certificate_id)
+      const confirmResponse = await api<{ success: boolean; certificate_id: number }>(
+        "/certificates/institution/confirm/",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            national_id: v.national_id,
+            title: v.title,
+            certificate_type: v.certificate_type,
+            issued_on: v.issued_on || null,
+            cid,
+            file_hash,
+            applicant_id_hash,
+            contract_address: contractAddress,
+            tx_hash: tx.hash,
+            block_number: receipt.blockNumber,
+          }),
+        }
+      );
+
+      // Use real DB certificate_id from backend
+      navigate("/institution/success", {
         state: {
-          id: res?.id,
-          txHash: res?.tx_hash,
-          blockNumber: res?.block_number,
-          cid: res?.cid_blob ?? res?.cid,
+          certificate_id: confirmResponse.certificate_id,
+          txHash: tx.hash,
+          blockNumber: receipt.blockNumber,
         },
       });
     } catch (err: any) {
-      const msg =
-        err?.userMessage ||
-        err?.message ||
-        err?.response?.data?.user_message ||
-        "Upload failed.";
-      setFileError("");
-      setServerError(msg);
+      console.error(err);
+      setServerError(err?.userMessage || err?.message || "Failed to issue certificate.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
+  const disableUpload =
+    isSubmitting ||
+    isProcessing ||
+    walletMismatch ||
+    !connectedWallet ||
+    !institutionWallet ||
+    !contractAddress;
+
+  // --------------------------------------------
+  // RENDER
+  // --------------------------------------------
   return (
-    <section className="pt-0 pb-6">
-      <div className="auth-wrap">
-        <div className="mb-6">
+    <div className="min-h-screen bg-white py-3 px-3 md:py-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="mb-4">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Upload New{" "}
             <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
               Certificate
             </span>
           </h1>
-          <p className="mt-1 text-gray-500">Fill in the certificate details and upload the PDF document</p>
+
+          <p className="mt-1 text-gray-500 text-sm md:text-base">
+            Fill in the certificate details and upload the PDF document.
+          </p>
         </div>
 
-        {serverError && (
-          <div className="mb-6 rounded-xl border-2 border-red-2 00 bg-red-50 p-4">
-            <div className="flex items-start gap-3">
-              <svg className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        {/* Wallet Status Card */}
+        <div className="mb-3 bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center">
+              <svg className="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
               </svg>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-red-900">Upload Failed</p>
-                <p className="mt-1 text-sm text-red-700">{serverError}</p>
-              </div>
             </div>
+            <h3 className="text-sm font-semibold text-gray-900">Wallet Status</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="bg-gray-50 rounded-lg p-2">
+              <p className="text-[11px] text-gray-600 mb-0.5">Expected Wallet</p>
+              <p className="text-xs font-mono font-semibold text-gray-900">
+                {institutionWallet ? truncateAddress(institutionWallet) : "Not configured"}
+              </p>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-2">
+              <p className="text-[11px] text-gray-600 mb-0.5">Connected Wallet</p>
+              <p
+                className={`text-xs font-mono font-semibold ${
+                  walletMismatch
+                    ? "text-red-600"
+                    : connectedWallet
+                    ? "text-green-600"
+                    : "text-gray-400"
+                }`}
+              >
+                {connectedWallet ? truncateAddress(connectedWallet) : "Not connected"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {serverError && (
+          <div className="mb-3 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-700">
+            {serverError}
           </div>
         )}
 
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          <form onSubmit={handleSubmit(onSubmit)} aria-busy={isSubmitting} noValidate>
-            <div className="grid gap-6 p-6 md:grid-cols-2">
-              {/* LEFT */}
-              <div className="space-y-5">
-                <div>
-                  <label htmlFor="nationalId" className="mb-2 block text-sm font-semibold text-gray-700">National ID</label>
-                  <input id="nationalId" type="text" className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4" placeholder="1233211234" {...register("nationalId")} />
-                  {errors.nationalId && <p className="mt-1.5 text-sm text-red-600">{errors.nationalId.message}</p>}
+        {/* Main Form */}
+        <div className="bg-white rounded-lg shadow-md border border-gray-200">
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
+            <div className="p-4 md:p-5">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  {/* National ID */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      National ID
+                    </label>
+                    <input
+                      {...register("national_id")}
+                      className={`w-full px-3 py-2 rounded-lg text-sm border ${
+                        errors.national_id ? "border-red-300 bg-red-50" : "border-gray-300"
+                      }`}
+                      placeholder="1234567890"
+                    />
+                    {errors.national_id && (
+                      <p className="mt-1 text-xs text-red-600">{errors.national_id.message}</p>
+                    )}
+                  </div>
+
+                  {/* Full Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Full Name
+                    </label>
+                    <input
+                      {...register("full_name")}
+                      className={`w-full px-3 py-2 rounded-lg text-sm border ${
+                        errors.full_name ? "border-red-300 bg-red-50" : "border-gray-300"
+                      }`}
+                      placeholder="Enter full name"
+                    />
+                    {errors.full_name && (
+                      <p className="mt-1 text-xs text-red-600">{errors.full_name.message}</p>
+                    )}
+                  </div>
+
+                  {/* Certificate Title */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Certificate Title
+                    </label>
+                    <input
+                      {...register("title")}
+                      className={`w-full px-3 py-2 rounded-lg text-sm border ${
+                        errors.title ? "border-red-300 bg-red-50" : "border-gray-300"
+                      }`}
+                      placeholder="e.g., Bachelor of Computer Science"
+                    />
+                    {errors.title && (
+                      <p className="mt-1 text-xs text-red-600">{errors.title.message}</p>
+                    )}
+                  </div>
+
+                  {/* Certificate Type */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Certificate Type
+                    </label>
+                    <select
+                      {...register("certificate_type")}
+                      className={`w-full px-3 py-2 rounded-lg text-sm border ${
+                        errors.certificate_type
+                          ? "border-red-300 bg-red-50"
+                          : "border-gray-300"
+                      }`}
+                    >
+                      <option value="">Select certificate type</option>
+                      <option value="Bachelor Degree">Bachelor Degree</option>
+                      <option value="Master Degree">Master Degree</option>
+                      <option value="Doctorate Degree">Doctorate Degree</option>
+                      <option value="Diploma">Diploma</option>
+                      <option value="Professional Certificate">Professional Certificate</option>
+                    </select>
+                    {errors.certificate_type && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.certificate_type.message}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Issue Date */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Issue Date
+                    </label>
+                    <input
+                      type="date"
+                      {...register("issued_on")}
+                      className="w-full px-3 py-2 rounded-lg text-sm border border-gray-300"
+                    />
+                  </div>
                 </div>
 
+                {/* Right Column (File Upload) */}
                 <div>
-                  <label htmlFor="fullName" className="mb-2 block text-sm font-semibold text-gray-700">Full Name</label>
-                  <input id="fullName" type="text" className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4" placeholder="Enter full name" {...register("fullName")} />
-                  {errors.fullName && <p className="mt-1.5 text-sm text-red-600">{errors.fullName.message}</p>}
-                </div>
-
-                <div>
-                  <label htmlFor="title" className="mb-2 block text-sm font-semibold text-gray-700">Certificate Title</label>
-                  <input id="title" type="text" className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4" placeholder="e.g., Bachelor of Science" {...register("title")} />
-                  {errors.title && <p className="mt-1.5 text-sm text-red-600">{errors.title.message}</p>}
-                </div>
-
-                <div>
-                  <label htmlFor="issueDate" className="mb-2 block text-sm font-semibold text-gray-700">Issue Date</label>
-                  <input id="issueDate" type="date" className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4" {...register("issueDate")} />
-                  {errors.issueDate && <p className="mt-1.5 text-sm text-red-600">{errors.issueDate.message}</p>}
-                </div>
-
-                <div>
-                  <label htmlFor="serialNumber" className="mb-2 block text-sm font-semibold text-gray-700">Serial Number</label>
-                  <input id="serialNumber" type="text" className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4" placeholder="Enter serial number" {...register("serialNumber")} />
-                  {errors.serialNumber && <p className="mt-1.5 text-sm text-red-600">{errors.serialNumber.message}</p>}
-                </div>
-              </div>
-
-              {/* RIGHT - File */}
-              <div className="space-y-5">
-                <div>
-                  <label htmlFor="file" className="mb-2 block text-sm font-semibold text-gray-700">Upload Certificate</label>
-
-                  <label
-                    htmlFor="file"
-                    className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-12 transition-all hover:border-indigo-400 hover:bg-indigo-50/50"
-                    onDragEnter={prevent}
-                    onDragOver={prevent}
-                    onDragLeave={prevent}
-                    onDrop={onDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <UploadIllustration />
-                    <div className="mt-2 text-center">
-                      <div className="font-semibold text-gray-700">Upload Certificate</div>
-                      <div className="mt-1 text-sm text-gray-500">Drag & drop or click to browse</div>
-                      <div className="mt-1 text-xs text-gray-400">PDF format only (max {MAX_FILE_MB}MB)</div>
-                    </div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Upload Certificate (PDF)
                   </label>
 
+                  {!uploadName ? (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="relative min-h-[180px] flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/40 transition-all"
+                    >
+                      <div className="text-center p-4">
+                        <div className="w-12 h-12 mx-auto mb-2 bg-indigo-100 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-6 h-6 text-indigo-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                            />
+                          </svg>
+                        </div>
+                        <p className="text-xs font-medium text-gray-700">
+                          Click to upload or drag & drop
+                        </p>
+                        <p className="text-[11px] text-gray-500">
+                          PDF files only · Max {MAX_FILE_MB}MB
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border rounded-lg p-3 bg-green-50 border-green-200">
+                      <p className="text-xs font-semibold text-gray-800 truncate">
+                        {uploadName}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={clearFile}
+                        className="mt-2 text-xs text-red-600 font-medium"
+                      >
+                        Remove file
+                      </button>
+                    </div>
+                  )}
+
                   <input
-                    id="file"
                     ref={fileInputRef}
                     type="file"
+                    className="hidden"
                     accept=".pdf,application/pdf"
-                    style={{ display: "none" }}
                     onChange={(e) => pickFile(e.target.files)}
                   />
 
-                  {uploadName && (
-                    <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <svg className="h-5 w-5 flex-shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-emerald-900 truncate">{uploadName}</p>
-                            {file && <p className="text-xs text-emerald-700">{mb(file.size)} MB</p>}
-                          </div>
-                        </div>
-                        <button type="button" className="ml-3 flex-shrink-0 text-sm font-medium text-red-600 hover:text-red-700" onClick={clearFile}>
-                          Remove
-                        </button>
-                      </div>
-                    </div>
+                  {fileError && (
+                    <p className="mt-2 text-xs text-red-600">{fileError}</p>
                   )}
-
-                  {fileError && <p className="mt-2 text-sm text-red-600">{fileError}</p>}
                 </div>
               </div>
             </div>
 
-            <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">
-              <div className="flex items-center justify-end gap-3">
-                <button type="button" className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50" onClick={() => navigate("/institution")} disabled={isSubmitting}>
-                  Cancel
-                </button>
-                <button type="submit" className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Uploadingâ€¦
-                    </>
-                  ) : (
-                    <>
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      Upload Certificate
-                    </>
-                  )}
-                </button>
-              </div>
+            {/* Footer Buttons */}
+            <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => navigate("/institution")}
+                disabled={isSubmitting || isProcessing}
+                className="px-4 py-2 text-xs text-gray-700 font-medium hover:bg-gray-200 rounded-lg disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={disableUpload}
+                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-xs text-white font-semibold rounded-lg shadow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isProcessing ? "Processing..." : "Upload & Issue Certificate"}
+              </button>
             </div>
           </form>
         </div>
+
+        {/* Helper Text */}
+        {disableUpload && !isProcessing && (
+          <div className="mt-2 text-center">
+            <p className="text-[11px] text-gray-500">
+              {!connectedWallet
+                ? "⚠ Connect MetaMask to continue"
+                : walletMismatch
+                ? "⚠ Connected wallet must match institution wallet"
+                : !contractAddress
+                ? "⚠ Contract not deployed"
+                : ""}
+            </p>
+          </div>
+        )}
       </div>
-    </section>
+    </div>
   );
 }
-

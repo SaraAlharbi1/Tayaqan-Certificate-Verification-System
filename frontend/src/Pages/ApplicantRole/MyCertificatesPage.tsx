@@ -1,22 +1,20 @@
-// src/Pages/ApplicantRole/MyCertificatesPage.tsx
-// Same UI as before; reordered columns to match Institution list (actions before status).
-
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 
-/* ---- Types ---- */
+/* ---------------------- Types ---------------------- */
 type BackendCert = {
   id: string | number;
   display_label?: string | null;
   institution_name?: string | null;
   issued_on?: string | null;
-  serial_number?: string | null;
   file_hash?: string | null;
+  tx_hash?: string | null;
+  block_number?: number | null;
 };
 
 type ChainRow = {
-  fileHash: string; // 0x...
+  fileHash: string;
   exists: boolean;
   revoked: boolean;
   applicantIdHash?: string | null;
@@ -28,24 +26,36 @@ type Row = {
   title: string;
   issuer: string;
   issueDate: string;
-  serial: string;
   fileHash: string;
   status: "ACTIVE" | "REVOKED" | "CHECKING" | "INVALID";
 };
 
-type Paginated<T> = { count: number; next: string | null; previous: string | null; results: T[] };
+type Paginated<T> = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+};
 
-/* ---- Helpers ---- */
-const normHash = (h: string) => (!h ? "" : (h.startsWith("0x") ? h : "0x" + h).toLowerCase());
+/* ---------------------- Helpers ---------------------- */
+const normHash = (h: string) =>
+  !h ? "" : (h.startsWith("0x") ? h : "0x" + h).toLowerCase();
 
 const fmtDate = (d?: string | null) => {
   if (!d) return "";
   const t = new Date(d);
   return isNaN(t.getTime())
     ? d || ""
-    : t.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    : t.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
 };
 
+/* =======================================================
+   My Certificates (Applicant)
+======================================================= */
 export default function MyCertificatesPage() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | "ACTIVE" | "REVOKED">("");
@@ -64,10 +74,11 @@ export default function MyCertificatesPage() {
 
   const [chainByHash, setChainByHash] = useState<Record<string, ChainRow>>({});
 
-  /* ---- Fetch list (DB only) ---- */
+  /* ------------------ Fetch list (DB only) ------------------ */
   const fetchPage = async (pageNum: number) => {
     setLoading(true);
     setErr(null);
+
     try {
       const params = new URLSearchParams();
       params.set("page", String(pageNum));
@@ -75,14 +86,15 @@ export default function MyCertificatesPage() {
       if (fromDate) params.set("issued_on__gte", fromDate);
       if (toDate) params.set("issued_on__lte", toDate);
 
-      const res = await api<Paginated<BackendCert>>(`/my/certificates/?${params.toString()}`);
-      const list = res.results ?? [];
-      const mapped: Row[] = list.map((d) => ({
+      const res = await api<Paginated<BackendCert>>(
+        `/certificates/my/?${params.toString()}`,
+      );
+
+      const mapped: Row[] = (res.results ?? []).map((d) => ({
         id: String(d.id),
         title: d.display_label || "Untitled Certificate",
         issuer: d.institution_name || "—",
         issueDate: fmtDate(d.issued_on),
-        serial: d.serial_number || "",
         fileHash: d.file_hash || "",
         status: "CHECKING",
       }));
@@ -102,27 +114,44 @@ export default function MyCertificatesPage() {
     }
   };
 
-  /* ---- Chain statuses (array response) ---- */
+  /* ------------------ Chain statuses ------------------ */
   const loadBlockchainStatuses = async (certs: Row[]) => {
     try {
       setStatusLoading(true);
-      const fileHashes = Array.from(new Set(certs.map((c) => normHash(c.fileHash)).filter(Boolean)));
+
+      const fileHashes = Array.from(
+        new Set(certs.map((c) => normHash(c.fileHash)).filter(Boolean)),
+      );
+
       if (fileHashes.length === 0) {
         setChainByHash({});
         setStatusLoading(false);
         return;
       }
 
-      const arr = await api<ChainRow[]>("/my/certificates/verify-batch/", {
+      const resp = await api<any>("/certificates/my/verify-batch/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ file_hashes: fileHashes }),
       });
 
+      let arr: any[] = [];
+      if (Array.isArray(resp)) arr = resp;
+      else if (resp?.results) arr = resp.results;
+
       const map: Record<string, ChainRow> = {};
-      for (const r of arr || []) {
-        if (r?.fileHash) map[normHash(r.fileHash)] = r;
+      for (const r of arr) {
+        const h = normHash(r.fileHash || r.file_hash || "");
+        if (h)
+          map[h] = {
+            fileHash: h,
+            exists: !!r.exists,
+            revoked: !!(r.revoked || r.is_revoked),
+            applicantIdHash: r.applicantIdHash || r.applicant_id_hash || null,
+            issuedAt: r.issuedAt || r.issued_at || null,
+          };
       }
+
       setChainByHash(map);
 
       setRows((prev) =>
@@ -132,42 +161,38 @@ export default function MyCertificatesPage() {
           if (!st.exists) return { ...row, status: "INVALID" };
           if (st.revoked) return { ...row, status: "REVOKED" };
           return { ...row, status: "ACTIVE" };
-        })
+        }),
       );
     } finally {
       setStatusLoading(false);
     }
   };
 
-  /* ---- Effect ---- */
+  /* ------------------ Fetch on change ------------------ */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         await fetchPage(page);
-      } catch (e: any) {
-        if (!cancelled) {
-          setErr(e?.userMessage || e?.message || "Failed to load certificates.");
-          setLoading(false);
-        }
-      }
+      } catch {}
     })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q, fromDate, toDate]);
 
-  /* ---- Local status filter ---- */
-  const filteredData = useMemo(() => {
-    if (!statusFilter) return rows;
-    return rows.filter((row) => row.status === statusFilter);
-  }, [rows, statusFilter]);
+  /* ------------------ Local status filter ------------------ */
+  const filteredData = useMemo(
+    () => (!statusFilter ? rows : rows.filter((r) => r.status === statusFilter)),
+    [rows, statusFilter],
+  );
 
-  /* ---------------- UI ---------------- */
+  /* --------------------------- UI --------------------------- */
   return (
     <section className="pt-0 pb-6">
       <div className="auth-wrap">
+
+        {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             My{" "}
@@ -179,49 +204,25 @@ export default function MyCertificatesPage() {
         </div>
 
         {err && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">{err}</div>
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+            {err}
+          </div>
         )}
 
         <div className="auth-card mt-0">
-          {/* Chips */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setStatusFilter("")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === "" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setStatusFilter("ACTIVE")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === "ACTIVE" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-              }`}
-            >
-              Active
-            </button>
-            <button
-              onClick={() => setStatusFilter("REVOKED")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === "REVOKED" ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"
-              }`}
-            >
-              Revoked
-            </button>
-          </div>
 
           {/* Filters */}
           <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
-              placeholder="Search by title, serial..."
+              placeholder="Search by title..."
               value={q}
               onChange={(e) => {
                 setPage(1);
                 setQ(e.target.value);
               }}
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
+              className="h-12 rounded-xl bg-gray-50 px-4 border border-gray-200"
             />
+
             <input
               type="date"
               value={fromDate}
@@ -229,8 +230,9 @@ export default function MyCertificatesPage() {
                 setPage(1);
                 setFromDate(e.target.value);
               }}
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
+              className="h-12 rounded-xl bg-gray-50 px-4 border border-gray-200"
             />
+
             <input
               type="date"
               value={toDate}
@@ -238,35 +240,11 @@ export default function MyCertificatesPage() {
                 setPage(1);
                 setToDate(e.target.value);
               }}
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
+              className="h-12 rounded-xl bg-gray-50 px-4 border border-gray-200"
             />
           </div>
 
-          {/* Status bar */}
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl">
-              <span className={`inline-block h-2 w-2 rounded-full ${loading ? "bg-amber-500" : "bg-emerald-500"}`} />
-              <span className="text-sm font-medium text-slate-700">
-                {loading ? "Loading..." : `${filteredData.length} certificates`}
-              </span>
-            </div>
-
-            {statusLoading && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-xl text-sm text-blue-700">
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Verifying on blockchain...
-              </div>
-            )}
-          </div>
-
-          {/* Table (Actions BEFORE Status to mirror Institution table order) */}
+          {/* Table */}
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -275,88 +253,66 @@ export default function MyCertificatesPage() {
                     <th className="px-4 py-3 text-left font-semibold">Title</th>
                     <th className="px-4 py-3 text-left font-semibold">Issuer</th>
                     <th className="px-4 py-3 text-left font-semibold">Issue Date</th>
-                    <th className="px-4 py-3 text-left font-semibold">Serial</th>
                     <th className="px-4 py-3 text-left font-semibold w-28">View</th>
                     <th className="px-4 py-3 text-left font-semibold">Status</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-100">
+
+                  {/* Loading */}
                   {loading && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-10 text-center text-gray-500">
-                        <div className="inline-flex items-center gap-3">
-                          <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            />
-                          </svg>
-                          Loading...
-                        </div>
+                      <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
+                        Loading…
                       </td>
                     </tr>
                   )}
 
+                  {/* Data */}
                   {!loading &&
                     filteredData.map((r) => {
-                      const isChecking = r.status === "CHECKING";
-                      const isRevoked = r.status === "REVOKED";
-                      const isActive = r.status === "ACTIVE";
-                      const isInvalid = r.status === "INVALID";
+                      const st = r.status;
+                      const isChecking = st === "CHECKING";
+                      const isRevoked = st === "REVOKED";
+                      const isActive = st === "ACTIVE";
+                      const isInvalid = st === "INVALID";
 
                       return (
-                        <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
+                        <tr key={r.id} className="hover:bg-gray-50/60">
                           <td className="px-4 py-3 font-medium text-gray-900">{r.title}</td>
                           <td className="px-4 py-3 text-gray-600">{r.issuer}</td>
                           <td className="px-4 py-3 text-gray-600">{r.issueDate}</td>
-                          <td className="px-4 py-3 font-mono text-gray-700 text-xs">{r.serial}</td>
 
-                          {/* VIEW column */}
+                          {/* View */}
                           <td className="px-4 py-3">
                             <Link
-                              to={`/applicant/certificates/${encodeURIComponent(r.id)}`}
-                              className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors"
+                              to={`/applicant/certificates/${r.id}`}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md"
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                              </svg>
                               View
                             </Link>
                           </td>
 
-                          {/* STATUS column */}
+                          {/* Status */}
                           <td className="px-4 py-3">
                             {isChecking && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-gray-50 text-gray-600">
-                                <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                  <path
-                                    className="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                  />
-                                </svg>
+                              <span className="px-3 py-1.5 text-xs rounded-full bg-gray-50 text-gray-600">
                                 Checking...
                               </span>
                             )}
                             {isActive && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700">
-                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              <span className="px-3 py-1.5 text-xs rounded-full bg-emerald-50 text-emerald-700">
                                 ACTIVE
                               </span>
                             )}
                             {isRevoked && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-700">
-                                <span className="h-2 w-2 rounded-full bg-red-500" />
+                              <span className="px-3 py-1.5 text-xs rounded-full bg-red-50 text-red-700">
                                 REVOKED
                               </span>
                             )}
                             {isInvalid && (
-                              <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700">
-                                <span className="h-2 w-2 rounded-full bg-amber-500" />
+                              <span className="px-3 py-1.5 text-xs rounded-full bg-amber-50 text-amber-700">
                                 INVALID
                               </span>
                             )}
@@ -365,59 +321,19 @@ export default function MyCertificatesPage() {
                       );
                     })}
 
+                  {/* No data */}
                   {!loading && filteredData.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-16 text-center">
-                        <div className="flex flex-col items-center gap-3">
-                          <svg className="w-12 h-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                            />
-                          </svg>
-                          <div>
-                            <p className="text-gray-500 font-medium">No certificates found</p>
-                            <p className="text-sm text-gray-400 mt-1">
-                              {q || statusFilter || fromDate || toDate ? "Try adjusting your filters" : "Your certificates will appear here once issued"}
-                            </p>
-                          </div>
-                        </div>
+                      <td colSpan={5} className="px-4 py-16 text-center text-gray-500">
+                        No certificates found
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-
-            {/* Pagination */}
-            {!loading && filteredData.length > 0 && (
-              <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
-                <button
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => setPage((p) => (p > 1 ? p - 1 : 1))}
-                  disabled={!canPrev || loading}
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Previous
-                </button>
-                <div className="text-sm text-gray-500">Page {page}</div>
-                <button
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={loading || !canNext}
-                >
-                  Next
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              </div>
-            )}
           </div>
+
         </div>
       </div>
     </section>

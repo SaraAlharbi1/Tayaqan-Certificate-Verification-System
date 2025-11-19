@@ -1,5 +1,19 @@
-import re
-HEX_66 = re.compile(r"^0x[a-fA-F0-9]{64}$")
+from django.core.exceptions import ValidationError
 
-def is_hex_66(value: str) -> bool:
-    return isinstance(value, str) and bool(HEX_66.fullmatch(value))
+
+MAX_CERT_PDF_MB = 5
+
+
+def validate_pdf_file(upload):
+    """
+    Very simple validator:
+    - must end with .pdf
+    - size <= MAX_CERT_PDF_MB MB
+    """
+    name = getattr(upload, "name", "") or ""
+    if not name.lower().endswith(".pdf"):
+        raise ValidationError("File must be a PDF.")
+
+    size_mb = upload.size / (1024 * 1024)
+    if size_mb > MAX_CERT_PDF_MB:
+        raise ValidationError(f"PDF too large (>{MAX_CERT_PDF_MB} MB).")

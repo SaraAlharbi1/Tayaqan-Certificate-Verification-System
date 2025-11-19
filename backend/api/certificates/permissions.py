@@ -1,25 +1,35 @@
 from rest_framework.permissions import BasePermission
 
+from api.accounts.models import User
+
+
 class IsInstitutionUser(BasePermission):
     """
-    Allows access only to users linked to an Institution.
-    You already enforce one user per institution.
+    Only logged-in institution users (with Institution profile).
     """
-    message = "User is not linked to an institution."
 
     def has_permission(self, request, view):
         user = request.user
         if not user or not user.is_authenticated:
             return False
-        # Expect Institution has OneToOne/ForeignKey from Institution to User as .user
-        try:
-            institution = user.institution  # if you have OneToOneField(Institution, user=OneToOne)
-        except Exception:
-            # If you modeled it as Institution.objects.get(user=user), fallback:
-            try:
-                from accounts.models import Institution
-                institution = Institution.objects.get(user=user)
-            except Exception:
-                return False
-        # Optionally require APPROVED status for reads as well, or relax:
-        return True
+        return (
+            getattr(user, "role", None) == User.Roles.INSTITUTION
+            and hasattr(user, "institution")
+            and user.institution is not None
+        )
+
+
+class IsApplicantUser(BasePermission):
+    """
+    Only logged-in applicants (with Applicant profile).
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        return (
+            getattr(user, "role", None) == User.Roles.APPLICANT
+            and hasattr(user, "applicant")
+            and user.applicant is not None
+        )

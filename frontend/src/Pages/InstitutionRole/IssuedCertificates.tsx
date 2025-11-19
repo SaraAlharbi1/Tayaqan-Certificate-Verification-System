@@ -1,31 +1,19 @@
-// src/Pages/InstitutionRole/IssuedCertificates.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
+import { ethers } from "ethers";
 
-/* ---------------------- Types ---------------------- */
+/* ---------- Types ---------- */
 type BackendCert = {
   id: string | number;
-
-  // applicant fields (various serializer variants)
-  applicant_full_name?: string;
-  applicant_name?: string;
-  applicant?: {
-    full_name?: string;
-    name?: string;
-    national_id_plain?: string;
-    national_id?: string | number;
-  };
-
-  // sometimes exposed at root with different keys
-  national_id_plain?: string | number;
-  applicant_national_id_plain?: string | number;
-  applicant_national_id?: string | number;
-
   display_label?: string;
   issued_on?: string;
-  serial_number?: string;
+  applicant_full_name?: string;
+  applicant_national_id_plain?: string | number;
+  institution_name?: string;
   file_hash?: string;
+  tx_hash?: string;
+  block_number?: number | null;
 };
 
 type BlockchainStatus = {
@@ -41,7 +29,6 @@ type Row = {
   nationalId: string;
   title: string;
   issueDate: string;
-  serial: string;
   fileHash: string;
   status: "CHECKING" | "ACTIVE" | "REVOKED" | "INVALID";
 };
@@ -53,126 +40,44 @@ type Paginated<T> = {
   results: T[];
 };
 
-/* ---------------------- Helpers ---------------------- */
+/* ---------- Helpers ---------- */
 const normHash = (h: string) =>
   !h ? "" : (h.startsWith("0x") ? h : "0x" + h).toLowerCase();
 
-const pickApplicantName = (d: BackendCert) =>
-  d.applicant_full_name ||
-  d.applicant_name ||
-  d.applicant?.full_name ||
-  d.applicant?.name ||
-  "—";
-
-/** Try all known national-id fields (root and nested, plain or not). */
-const pickApplicantNID = (d: BackendCert) => {
-  const v =
-    d.national_id_plain ??
-    d.applicant_national_id_plain ??
-    d.applicant_national_id ??
-    d.applicant?.national_id_plain ??
-    d.applicant?.national_id ??
-    "";
-  return v !== undefined && v !== null && String(v).trim() !== "" ? String(v) : "—";
-};
-
-/* Small UI helpers */
-function Badge({ children, className = "" }: { children: any; className?: string }) {
-  return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${className}`}>
-      {children}
-    </span>
-  );
-}
-
-/* Confirm Revoke Modal */
-function ConfirmRevokeModal({
-  open,
-  title,
-  applicant,
-  onCancel,
-  onConfirm,
-}: {
-  open: boolean;
-  title: string;
-  applicant: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-200">
-        <div className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M4.93 4.93l14.14 14.14M12 2a10 10 0 100 20 10 10 0 000-20z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900">Revoke certificate?</h3>
-          </div>
-
-          <div className="mt-3 text-sm text-gray-600">
-            <p className="font-medium text-gray-800">{title || "Untitled Certificate"}</p>
-            <p className="mt-1">Applicant: <span className="font-medium">{applicant}</span></p>
-            <p className="mt-3 text-gray-500">
-              This action will mark the certificate as <span className="font-semibold text-red-600">REVOKED</span> on-chain.
-              It cannot be undone.
-            </p>
-          </div>
-
-          <div className="mt-5 flex items-center justify-end gap-2">
-            <button
-              onClick={onCancel}
-              className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onConfirm}
-              className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700"
-            >
-              Revoke
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+const REGISTRY_ABI = [
+  "function revokeCertificate(string certificateHash) external",
+];
 
 /* =======================================================
-   Issued Certificates (Institution)
+   Component
 ======================================================= */
 export default function IssuedCertificates() {
-  // filters
+  /* Filters */
   const [q, setQ] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | "ACTIVE" | "REVOKED" | "CHECKING">("");
+  const [statusFilter, setStatusFilter] = useState<
+    "" | "ACTIVE" | "REVOKED" | "CHECKING"
+  >("");
 
-  // data + ui state
+  /* Data */
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusLoading, setStatusLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // flash message (success/error after revoke)
-  const [flash, setFlash] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // confirm modal state
+  /* Revoke modal */
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmRow, setConfirmRow] = useState<Row | null>(null);
+  const [revoking, setRevoking] = useState(false);
 
-  // pagination
+  /* Pagination */
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [canNext, setCanNext] = useState(false);
   const [canPrev, setCanPrev] = useState(false);
 
-  /* ------------------ Fetch list (DB only) ------------------ */
+  /* ---------- Fetch Certificates ---------- */
   const fetchPage = async (pageNum: number) => {
     setLoading(true);
     setErr(null);
@@ -185,52 +90,41 @@ export default function IssuedCertificates() {
       if (toDate) params.set("issued_on__lte", toDate);
 
       const res = await api<Paginated<BackendCert>>(
-        `/institution/certificates/?${params.toString()}`,
-        { method: "GET" }
+        `/certificates/institution/?${params.toString()}`
       );
 
-      const list = res.results ?? [];
-      const mapped: Row[] = list
-        .map((d) => ([
-          String(d.id),
-          pickApplicantName(d),
-          pickApplicantNID(d),
-          d.display_label || "Untitled Certificate",
-          d.issued_on
-            ? new Date(d.issued_on).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })
-            : "",
-          d.serial_number || "",
-          d.file_hash || "",
-        ] as const))
-        .map(([id, applicant, nationalId, title, issueDate, serial, fileHash]) => ({
-          id,
-          applicant,
-          nationalId,
-          title,
-          issueDate,
-          serial,
-          fileHash,
-          status: "CHECKING",
-        }));
+      const mapped = res.results.map((d) => ({
+        id: String(d.id),
+        applicant: d.applicant_full_name || "—",
+        nationalId: d.applicant_national_id_plain
+          ? String(d.applicant_national_id_plain)
+          : "—",
+        title: d.display_label || "Untitled Certificate",
+        issueDate: d.issued_on
+          ? new Date(d.issued_on).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })
+          : "",
+        fileHash: d.file_hash || "",
+        status: "CHECKING",
+      }));
 
       setRows(mapped);
-      setTotal(res.count ?? mapped.length);
+      setTotal(res.count || mapped.length);
       setCanNext(Boolean(res.next));
       setCanPrev(Boolean(res.previous));
       setLoading(false);
 
-      if (mapped.length > 0) setTimeout(() => verifyOnChain(mapped), 100);
+      if (mapped.length > 0) setTimeout(() => verifyOnChain(mapped), 80);
     } catch (e: any) {
       setErr(e?.userMessage || e?.message || "Failed to load certificates.");
       setLoading(false);
     }
   };
 
-  /* ------------------ Verify on blockchain ------------------ */
+  /* ---------- Blockchain Verification ---------- */
   const verifyOnChain = async (certs: Row[]) => {
     try {
       setStatusLoading(true);
@@ -238,45 +132,38 @@ export default function IssuedCertificates() {
       const fileHashes = Array.from(
         new Set(certs.map((c) => normHash(c.fileHash)).filter(Boolean))
       );
-      if (fileHashes.length === 0) {
-        setStatusLoading(false);
-        return;
-      }
+      if (fileHashes.length === 0) return;
 
-      const resp = await api<any>("/institution/certificates/verify-batch/", {
-        method: "POST",
-        body: JSON.stringify({ file_hashes: fileHashes }),
-      });
+      const resp = await api<any>(
+        "/certificates/institution/verify-batch/",
+        {
+          method: "POST",
+          body: JSON.stringify({ file_hashes: fileHashes }),
+        }
+      );
+
+      const items = resp?.results || (Array.isArray(resp) ? resp : []);
 
       const lookup = new Map<string, BlockchainStatus>();
-      if (Array.isArray(resp)) {
-        for (const it of resp) {
-          if (!it?.fileHash) continue;
-          lookup.set(normHash(it.fileHash), {
-            exists: !!it.exists,
-            revoked: !!it.revoked,
-            applicantIdHash: it.applicantIdHash,
-            issuedAt: it.issuedAt,
-          });
-        }
-      } else if (resp && typeof resp === "object") {
-        for (const [k, v] of Object.entries(resp)) {
-          lookup.set(normHash(k), {
-            exists: !!(v as any).exists,
-            revoked: !!(v as any).revoked,
-            applicantIdHash: (v as any).applicantIdHash,
-            issuedAt: (v as any).issuedAt,
-          });
-        }
-      }
+      items.forEach((it: any) => {
+        const hash = it?.file_hash || it?.fileHash;
+        if (!hash) return;
+
+        lookup.set(normHash(hash), {
+          exists: !!it.exists,
+          revoked: !!(it.revoked || it.is_revoked),
+          applicantIdHash: it.applicant_id_hash || it.applicantIdHash,
+          issuedAt: it.issue_date || it.issuedAt,
+        });
+      });
 
       setRows((prev) =>
         prev.map((r) => {
           const st = lookup.get(normHash(r.fileHash));
-          if (!st) return { ...r, status: "INVALID" as const };
-          if (!st.exists) return { ...r, status: "INVALID" as const };
-          if (st.revoked) return { ...r, status: "REVOKED" as const };
-          return { ...r, status: "ACTIVE" as const };
+          if (!st) return { ...r, status: "INVALID" };
+          if (!st.exists) return { ...r, status: "INVALID" };
+          if (st.revoked) return { ...r, status: "REVOKED" };
+          return { ...r, status: "ACTIVE" };
         })
       );
     } finally {
@@ -284,70 +171,91 @@ export default function IssuedCertificates() {
     }
   };
 
-  /* ------------------ Revoke (on-chain) ------------------ */
+  /* ---------- Revoke Certificate ---------- */
   const onRevoke = async (row: Row) => {
     try {
-      await api(`/institution/certificates/${encodeURIComponent(row.id)}/revoke/`, {
-        method: "POST",
-      });
+      setRevoking(true);
+
+      if (!window.ethereum) {
+        alert("MetaMask is not installed!");
+        return;
+      }
+
+      const userData = await api<any>("/accounts/auth/me/");
+      const contractAddress = userData?.profile?.contract_address;
+
+      if (!contractAddress) {
+        alert("Contract address not found in your profile!");
+        return;
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      const signer = await provider.getSigner();
+
+      const contract = new ethers.Contract(
+        contractAddress,
+        REGISTRY_ABI,
+        signer
+      );
+
+      const tx = await contract.revokeCertificate(row.fileHash);
+      const receipt = await tx.wait();
+
+      await api(
+        `/certificates/institution/${encodeURIComponent(row.id)}/revoke/`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            tx_hash: tx.hash,
+            block_number: receipt.blockNumber,
+          }),
+        }
+      );
+
       await verifyOnChain([row]);
-      setFlash({
-        type: "success",
-        text: `Certificate "${row.title}" for ${row.applicant} has been revoked.`,
-      });
-    } catch (e: any) {
-      setFlash({
-        type: "error",
-        text: e?.userMessage || e?.message || "Failed to revoke.",
-      });
+      alert("Certificate revoked successfully!");
+    } catch (error: any) {
+      let msg = error.reason || error.message || "Failed to revoke certificate";
+      alert(msg);
     } finally {
-      setTimeout(() => setFlash(null), 4500);
+      setRevoking(false);
     }
   };
 
+  /* ---------- Modal Controls ---------- */
   const openConfirm = (row: Row) => {
     setConfirmRow(row);
     setConfirmOpen(true);
   };
-  const closeConfirm = () => {
+
+  const confirmAndRevoke = async () => {
+    if (confirmRow) await onRevoke(confirmRow);
     setConfirmOpen(false);
     setConfirmRow(null);
   };
-  const confirmAndRevoke = async () => {
-    if (!confirmRow) return;
-    await onRevoke(confirmRow);
-    closeConfirm();
-  };
 
-  /* ------------------ Effect: fetch on change ------------------ */
+  /* ---------- Load on change ---------- */
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await fetchPage(page);
-      } catch (e: any) {
-        if (!cancelled) {
-          setErr(e?.userMessage || e?.message || "Failed to load certificates.");
-          setLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchPage(page);
   }, [page, q, fromDate, toDate]);
 
-  /* ------------------ Local status filter ------------------ */
+  /* ---------- Local filter ---------- */
   const filteredData = useMemo(() => {
     if (!statusFilter) return rows;
     return rows.filter((r) => r.status === statusFilter);
   }, [rows, statusFilter]);
 
-  /* --------------------------- UI --------------------------- */
+  /* 
+  ==========================================================
+                      UI  (UNCHANGED)
+  ==========================================================
+  */
+
   return (
     <section className="pt-0 pb-6">
       <div className="auth-wrap">
+        {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Issued{" "}
@@ -355,41 +263,10 @@ export default function IssuedCertificates() {
               Certificates
             </span>
           </h1>
-          <p className="mt-1 text-gray-500">All certificates your institution issued</p>
+          <p className="mt-1 text-gray-500">
+            View, manage, and verify all certificates your institution has issued.
+          </p>
         </div>
-
-        {/* flash message */}
-        {flash && (
-          <div
-            role="alert"
-            className={`mb-6 border rounded-xl p-4 text-sm font-medium flex items-start justify-between gap-3 ${
-              flash.type === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                : "bg-red-50 border-red-200 text-red-700"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {flash.type === "success" ? (
-                <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              )}
-              <span>{flash.text}</span>
-            </div>
-            <button
-              onClick={() => setFlash(null)}
-              className="shrink-0 inline-flex items-center justify-center rounded-md px-2 py-1 text-xs hover:bg-black/5 transition"
-              aria-label="Dismiss"
-              title="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
 
         {err && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
@@ -398,51 +275,18 @@ export default function IssuedCertificates() {
         )}
 
         <div className="auth-card mt-0">
-          {/* Status chips */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setStatusFilter("")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === ""
-                  ? "bg-indigo-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setStatusFilter("ACTIVE")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === "ACTIVE"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-              }`}
-            >
-              Active
-            </button>
-            <button
-              onClick={() => setStatusFilter("REVOKED")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                statusFilter === "REVOKED"
-                  ? "bg-red-600 text-white"
-                  : "bg-red-50 text-red-700 hover:bg-red-100"
-              }`}
-            >
-              Revoked
-            </button>
-          </div>
-
           {/* Filters */}
           <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
-              placeholder="Search by title, serial, applicant..."
+              placeholder="Search by title, applicant..."
               value={q}
               onChange={(e) => {
                 setPage(1);
                 setQ(e.target.value);
               }}
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
+              className="h-12 rounded-xl bg-gray-50 px-4 border border-gray-200"
             />
+
             <input
               type="date"
               value={fromDate}
@@ -450,8 +294,9 @@ export default function IssuedCertificates() {
                 setPage(1);
                 setFromDate(e.target.value);
               }}
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
+              className="h-12 rounded-xl bg-gray-50 px-4 border border-gray-200"
             />
+
             <input
               type="date"
               value={toDate}
@@ -459,32 +304,8 @@ export default function IssuedCertificates() {
                 setPage(1);
                 setToDate(e.target.value);
               }}
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
+              className="h-12 rounded-xl bg-gray-50 px-4 border border-gray-200"
             />
-          </div>
-
-          {/* Status bar */}
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl">
-              <span className={`inline-block h-2 w-2 rounded-full ${loading ? "bg-amber-500" : "bg-emerald-500"}`} />
-              <span className="text-sm font-medium text-slate-700">
-                {loading ? "Loading..." : `${filteredData.length} certificates`}
-              </span>
-            </div>
-
-            {statusLoading && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 rounded-xl text-sm text-blue-700">
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Verifying on blockchain...
-              </div>
-            )}
           </div>
 
           {/* Table */}
@@ -493,145 +314,98 @@ export default function IssuedCertificates() {
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold whitespace-nowrap">Applicant</th>
+                    <th className="px-4 py-3 text-left font-semibold">Applicant</th>
                     <th className="px-4 py-3 text-left font-semibold">National ID</th>
                     <th className="px-4 py-3 text-left font-semibold">Title</th>
                     <th className="px-4 py-3 text-left font-semibold">Issue Date</th>
-                    <th className="px-4 py-3 text-left font-semibold">Serial</th>
-                    <th className="px-4 py-3 text-left font-semibold w-28">View</th>
-                    <th className="px-4 py-3 text-left font-semibold w-28">Revoke</th>
+                    <th className="px-4 py-3 text-left font-semibold w-24">View</th>
+                    <th className="px-4 py-3 text-left font-semibold w-24">Revoke</th>
                     <th className="px-4 py-3 text-left font-semibold">Status</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-gray-100">
                   {loading && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
-                        <div className="inline-flex items-center gap-3">
-                          <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            />
-                          </svg>
-                          Loading...
-                        </div>
+                      <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
+                        Loading...
                       </td>
                     </tr>
                   )}
 
                   {!loading &&
-                    filteredData.map((r) => {
-                      const isChecking = r.status === "CHECKING";
-                      const isActive = r.status === "ACTIVE";
-                      const isRevoked = r.status === "REVOKED";
-                      const isInvalid = r.status === "INVALID";
+                    filteredData.map((r) => (
+                      <tr key={r.id} className="hover:bg-gray-50/60">
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          {r.applicant}
+                        </td>
 
-                      return (
-                        <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
-                          <td
-                            className="px-4 py-3 text-gray-900 font-medium whitespace-nowrap truncate max-w-[220px]"
-                            title={r.applicant}
+                        <td className="px-4 py-3 font-mono text-gray-700">
+                          {r.nationalId}
+                        </td>
+
+                        <td className="px-4 py-3 text-gray-600">{r.title}</td>
+
+                        <td className="px-4 py-3 text-gray-600">{r.issueDate}</td>
+
+                        {/* View */}
+                        <td className="px-4 py-3">
+                          <Link
+                            to={`/institution/certificates/${r.id}`}
+                            className="inline-flex px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs"
                           >
-                            {r.applicant}
-                          </td>
-                          <td className="px-4 py-3 text-gray-700 font-mono whitespace-nowrap">{r.nationalId}</td>
-                          <td className="px-4 py-3 text-gray-600">{r.title}</td>
-                          <td className="px-4 py-3 text-gray-600">{r.issueDate}</td>
-                          <td className="px-4 py-3 font-mono text-gray-700 text-xs">{r.serial}</td>
+                            View
+                          </Link>
+                        </td>
 
-                          {/* View */}
-                          <td className="px-4 py-3">
-                            <Link
-                              to={`/institution/certificates/${encodeURIComponent(r.id)}`}
-                              className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors"
+                        {/* Revoke */}
+                        <td className="px-4 py-3">
+                          {r.status === "ACTIVE" ? (
+                            <button
+                              onClick={() => openConfirm(r)}
+                              disabled={revoking}
+                              className="inline-flex px-3 py-1.5 bg-red-600 text-white rounded-md text-xs"
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                                />
-                              </svg>
-                              View
-                            </Link>
-                          </td>
+                              {revoking ? "Revoking..." : "Revoke"}
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
+                        </td>
 
-                          {/* Revoke */}
-                          <td className="px-4 py-3">
-                            {isActive ? (
-                              <button
-                                onClick={() => openConfirm(r)}
-                                className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-red-600 text-red-600 hover:bg-red-600 hover:text-white text-xs font-medium rounded-md transition-colors"
-                              >
-                                Revoke
-                              </button>
-                            ) : (
-                              <span className="text-xs text-gray-400 italic">—</span>
-                            )}
-                          </td>
+                        {/* Status */}
+                        <td className="px-4 py-3">
+                          {r.status === "CHECKING" && (
+                            <span className="px-3 py-1.5 text-xs bg-gray-50 text-gray-600 rounded-full">
+                              Checking…
+                            </span>
+                          )}
 
-                          {/* Status */}
-                          <td className="px-4 py-3">
-                            {isChecking && (
-                              <Badge className="bg-gray-50 text-gray-600">
-                                <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                  <path
-                                    className="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                  />
-                                </svg>
-                                Checking...
-                              </Badge>
-                            )}
-                            {isActive && (
-                              <Badge className="bg-emerald-50 text-emerald-700">
-                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                                ACTIVE
-                              </Badge>
-                            )}
-                            {isRevoked && (
-                              <Badge className="bg-red-50 text-red-700">
-                                <span className="h-2 w-2 rounded-full bg-red-500" />
-                                REVOKED
-                              </Badge>
-                            )}
-                            {isInvalid && (
-                              <Badge className="bg-amber-50 text-amber-700">
-                                <span className="h-2 w-2 rounded-full bg-amber-500" />
-                                INVALID
-                              </Badge>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                          {r.status === "ACTIVE" && (
+                            <span className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-full">
+                              ACTIVE
+                            </span>
+                          )}
+
+                          {r.status === "REVOKED" && (
+                            <span className="px-3 py-1.5 text-xs bg-red-50 text-red-700 rounded-full">
+                              REVOKED
+                            </span>
+                          )}
+
+                          {r.status === "INVALID" && (
+                            <span className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 rounded-full">
+                              INVALID
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
 
                   {!loading && filteredData.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-16 text-center">
-                        <div className="flex flex-col items-center gap-3">
-                          <svg className="w-12 h-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                            />
-                          </svg>
-                          <div>
-                            <p className="text-gray-500 font-medium">No certificates found</p>
-                            <p className="text-sm text-gray-400 mt-1">
-                              {q || fromDate || toDate ? "Try adjusting your filters" : "Issued certificates will appear here"}
-                            </p>
-                          </div>
-                        </div>
+                      <td colSpan={7} className="px-4 py-16 text-center">
+                        No certificates found
                       </td>
                     </tr>
                   )}
@@ -641,27 +415,23 @@ export default function IssuedCertificates() {
 
             {/* Pagination */}
             {!loading && filteredData.length > 0 && (
-              <div className="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
+              <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
                 <button
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  onClick={() => setPage((p) => (p > 1 ? p - 1 : 1))}
-                  disabled={!canPrev || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={!canPrev}
+                  className="px-4 py-2 bg-white border border-gray-200 rounded-lg"
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
                   Previous
                 </button>
-                <div className="text-sm text-gray-500">Page {page}</div>
+
+                <span className="text-sm text-gray-500">Page {page}</span>
+
                 <button
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   onClick={() => setPage((p) => p + 1)}
-                  disabled={loading || !canNext}
+                  disabled={!canNext}
+                  className="px-4 py-2 bg-white border border-gray-200 rounded-lg"
                 >
                   Next
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
                 </button>
               </div>
             )}
@@ -669,14 +439,98 @@ export default function IssuedCertificates() {
         </div>
       </div>
 
-      {/* Revoke modal */}
-      <ConfirmRevokeModal
-        open={confirmOpen}
-        title={confirmRow?.title ?? ""}
-        applicant={confirmRow?.applicant ?? ""}
-        onCancel={closeConfirm}
-        onConfirm={confirmAndRevoke}
-      />
+      {/* Revoke Modal */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setConfirmOpen(false)}
+          />
+
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-start gap-4 p-6 pb-4">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <svg
+                  className="w-6 h-6 text-red-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+
+              <div className="flex-1">
+                <h2 className="text-xl font-bold text-gray-900 mb-1">
+                  Revoke Certificate
+                </h2>
+                <p className="text-sm text-gray-500">
+                  This action cannot be undone
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 pb-6">
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <div>
+                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Certificate
+                  </span>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">
+                    {confirmRow?.title}
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Applicant
+                  </span>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">
+                    {confirmRow?.applicant}
+                  </p>
+                </div>
+
+                <div>
+                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    National ID
+                  </span>
+                  <p className="text-sm font-mono font-semibold text-gray-900 mt-1">
+                    {confirmRow?.nationalId}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs text-amber-800">
+                  <strong>Warning:</strong> Revoking this certificate will permanently mark it as invalid on the blockchain.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+                onClick={() => setConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors shadow-sm"
+                disabled={revoking}
+                onClick={confirmAndRevoke}
+              >
+                {revoking ? "Revoking..." : "Revoke Certificate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

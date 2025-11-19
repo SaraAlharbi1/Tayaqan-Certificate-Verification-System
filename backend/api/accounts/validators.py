@@ -1,35 +1,34 @@
+# api/accounts/validators.py
 """
 Reusable input validators.
-
-Why a separate module?
-----------------------
-Keeps serializers simple and centralizes patterns/rules so changes are easy.
 """
+
 import re
 
 EMAIL_RE = re.compile(r"^[^@]+@[^@]+\.[^@]+$")
-NATIONAL_ID_RE = re.compile(r"^\d{10}$")        # exact 10 ASCII digits
-PHONE_RE = re.compile(r"^\+?\d{8,15}$")         # +optional, 8–15 digits
+NATIONAL_ID_RE = re.compile(r"^\d{10}$")          # exact 10 ASCII digits
+PHONE_RE = re.compile(r"^\+?\d{8,15}$")           # +optional, 8–15 digits
+ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")  # basic Ethereum address
 
 
 def is_email(s: str) -> bool:
-    """Return True if 's' looks like an email address."""
+    """Return True if s looks like an email address."""
     return bool(EMAIL_RE.match(s or ""))
 
 
 def is_national_id_10_digits(s: str) -> bool:
-    """Return True if 's' is exactly 10 ASCII digits."""
+    """Return True if s is exactly 10 ASCII digits."""
     return bool(NATIONAL_ID_RE.match(s or ""))
 
 
 def validate_phone(s: str) -> bool:
-    """Return True if 's' looks like a phone number (+optional, 8–15 digits)."""
+    """Return True if s looks like a phone number (+optional, 8–15 digits)."""
     return bool(PHONE_RE.match(s or ""))
 
 
 def strong_password(s: str) -> bool:
     """
-    Very basic strength rule:
+    Basic strength rule:
     - length >= 8
     - contains at least one letter and one digit
     """
@@ -38,3 +37,8 @@ def strong_password(s: str) -> bool:
     has_letter = any(c.isalpha() for c in s)
     has_digit = any(c.isdigit() for c in s)
     return has_letter and has_digit
+
+
+def is_eth_address(s: str) -> bool:
+    """Return True if s looks like an Ethereum address (0x + 40 hex chars)."""
+    return bool(ETH_ADDRESS_RE.match(s or ""))
