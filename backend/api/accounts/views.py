@@ -11,6 +11,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
+from .models import Applicant
 
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.openapi import OpenApiTypes
@@ -332,4 +334,42 @@ class PasswordViewSet(viewsets.GenericViewSet):
         return Response(
             {"detail": "Password reset successful."},
             status=status.HTTP_200_OK
+        )
+        
+        
+        
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def verify_applicant(request, national_id):
+    """
+    Verify if an applicant exists by national ID and return their basic info.
+    Used by employers when creating access requests.
+    
+    GET /api/accounts/applicants/verify/{national_id}/
+    """
+    try:
+        applicant = Applicant.objects.select_related('user').get(
+            national_id_plain=national_id
+        )
+        
+        return Response({
+            'full_name': applicant.full_name,
+            'email': applicant.user.email if applicant.user else None,
+        }, status=status.HTTP_200_OK)
+        
+    except Applicant.DoesNotExist:
+        return Response(
+            {
+                'detail': 'Applicant not found with this national ID',
+                'error': 'NOT_FOUND'
+            },
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {
+                'detail': 'An error occurred while verifying the applicant',
+                'error': str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

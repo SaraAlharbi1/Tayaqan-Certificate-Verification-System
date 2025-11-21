@@ -1,3 +1,4 @@
+// frontend/src/Pages/EmployerRole/CreateAccessRequest.tsx
 import { useMemo, useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -8,7 +9,7 @@ export default function CreateAccessRequest() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState(false);
-  const [applicantData, setApplicantData] = useState<{name: string; email?: string} | null>(null);
+  const [applicantData, setApplicantData] = useState<{full_name: string; email?: string} | null>(null);
   const [fetchingApplicant, setFetchingApplicant] = useState(false);
   const [applicantError, setApplicantError] = useState<string>("");
 
@@ -27,8 +28,10 @@ export default function CreateAccessRequest() {
       // Debounce the API call
       const timer = setTimeout(async () => {
         try {
-          // Call API to verify applicant exists and get their name
-          const response = await api<{name: string; email?: string}>(`/employer/requests/verify-applicant/${trimmed}/`);
+          // Changed: Use the accounts endpoint to verify applicant
+          const response = await api<{full_name: string; email?: string}>(
+            `/accounts/applicants/verify/${trimmed}/`
+          );
           if (!cancel) {
             setApplicantData(response);
             setApplicantError("");
@@ -36,7 +39,6 @@ export default function CreateAccessRequest() {
           }
         } catch (e: any) {
           if (!cancel) {
-            // Extract the most helpful error message
             let errorMessage = "Applicant not found";
             
             if (e?.userMessage) {
@@ -69,38 +71,49 @@ export default function CreateAccessRequest() {
 
 
   const handleSubmit = async () => {
-    if (!looksLikeId || !applicantData) {
-      // Don't allow submission if applicant not found or invalid ID
-      if (!applicantData && looksLikeId) {
-        setError("Cannot send request: Applicant not found");
-      }
-      return;
+  if (!looksLikeId || !applicantData) {
+    if (!applicantData && looksLikeId) {
+      setError("Cannot send request: Applicant not found");
+    }
+    return;
+  }
+  
+  try {
+    setSubmitting(true);
+    setError("");
+    setSuccess(false);
+    
+    // FIX: Change back to applicant_national_id to match backend
+    await api("/access/employer/requests/", {
+      method: "POST",
+      body: JSON.stringify({ applicant_national_id: trimmed }),
+    });
+    
+    setSuccess(true);
+    setQuery("");
+    
+    setTimeout(() => {
+      navigate("/employer/access");
+    }, 1500);
+    
+  } catch (e: any) {
+    // Better error display
+    let errorMessage = "Failed to create request. Please try again.";
+    
+    if (e?.data?.applicant_national_id) {
+      errorMessage = e.data.applicant_national_id[0];
+    } else if (e?.data?.detail) {
+      errorMessage = e.data.detail;
+    } else if (e?.userMessage) {
+      errorMessage = e.userMessage;
+    } else if (e?.message) {
+      errorMessage = e.message;
     }
     
-    try {
-      setSubmitting(true);
-      setError("");
-      setSuccess(false);
-      
-      await api("/employer/requests/", {
-        method: "POST",
-        body: JSON.stringify({ applicant_national_id: trimmed }),
-      });
-      
-      // Show success message
-      setSuccess(true);
-      setQuery("");
-      
-      // Redirect after showing success message
-      setTimeout(() => {
-        navigate("/employer/access");
-      }, 1500);
-      
-    } catch (e: any) {
-      setError(e?.userMessage || e?.message || "Failed to create request. Please try again.");
-      setSubmitting(false);
-    }
-  };
+    setError(errorMessage);
+    setSubmitting(false);
+  }
+};
 
   return (
     <section className="pt-0 pb-6">
@@ -193,7 +206,7 @@ export default function CreateAccessRequest() {
                       </div>
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-emerald-800">Applicant Found</p>
-                        <p className="text-base font-bold text-emerald-900 mt-1">{applicantData.name}</p>
+                        <p className="text-base font-bold text-emerald-900 mt-1">{applicantData.full_name}</p>
                         {applicantData.email && (
                           <p className="text-sm text-emerald-700 mt-0.5">{applicantData.email}</p>
                         )}

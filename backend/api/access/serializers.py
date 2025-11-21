@@ -17,7 +17,7 @@ class AccessRequestSerializer(serializers.ModelSerializer):
     Canonical fields:
       - employer_name: company name of the requesting employer
       - applicant_name: full name of the applicant
-      - national_id_plain: applicant’s national ID (display-only)
+      - national_id_plain: applicant's national ID (display-only)
 
     Compatibility aliases (avoid frontend changes):
       - company_name: alias for employer_name
@@ -52,8 +52,8 @@ class AccessRequestSerializer(serializers.ModelSerializer):
 
 class AccessRequestCreateSerializer(serializers.Serializer):
     """
-    Employer creates a request by providing the applicant’s national ID.
-    Validates employer status and the applicant’s existence.
+    Employer creates a request by providing the applicant's national ID.
+    Validates employer status and the applicant's existence.
     """
     applicant_national_id = serializers.CharField()
 
@@ -90,11 +90,18 @@ class AccessRequestCreateSerializer(serializers.Serializer):
 class AccessApproveSerializer(serializers.Serializer):
     """
     Applicant approves a request by selecting certificate IDs.
+    Can optionally set expiry date for access.
     Input is de-duplicated while preserving order.
     """
     certificate_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
+    )
+    expiry_days = serializers.IntegerField(
+        required=False,
+        default=365,
+        min_value=0,
+        help_text="Days until access expires (0 = no expiry/permanent)"
     )
 
     def validate_certificate_ids(self, ids):
@@ -115,7 +122,39 @@ class AccessShareSerializer(serializers.ModelSerializer):
     title = serializers.CharField(source="certificate.display_label", read_only=True)
     issued_on = serializers.DateField(source="certificate.issued_on", read_only=True)
     issuer = serializers.CharField(source="certificate.institution.institution_name", read_only=True)
+    
+    # Expiry and status fields
+    is_expired = serializers.SerializerMethodField()
+    is_active = serializers.SerializerMethodField()
+    days_until_expiry = serializers.SerializerMethodField()
 
     class Meta:
         model = AccessShare
-        fields = ["id", "file_hash", "title", "issued_on", "issuer", "created_at"]
+        fields = [
+            "id", 
+            "file_hash", 
+            "title", 
+            "issued_on", 
+            "issuer", 
+            "created_at",
+            "expiry_date",
+            "is_expired",
+            "is_active",
+            "days_until_expiry",
+            "blockchain_synced",
+            "blockchain_tx_hash",
+            "revoked_at",
+        ]
+    
+    def get_is_expired(self, obj):
+        return obj.is_expired()
+    
+    def get_is_active(self, obj):
+        return obj.is_active()
+    
+    def get_days_until_expiry(self, obj):
+        if not obj.expiry_date:
+            return None  # No expiry
+        from django.utils import timezone
+        delta = obj.expiry_date - timezone.now()
+        return max(0, delta.days)

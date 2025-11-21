@@ -1,107 +1,194 @@
-// src/Pages/ApplicantRole/AccessRequests.tsx
-import { useMemo, useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { api } from "@/lib/api";
+// frontend/src/Pages/ApplicantRole/AccessRequests.tsx
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
-/* ----------------------------- Types ----------------------------- */
-type AccessReq = {
+interface AccessRequest {
   id: number;
-  status: "PENDING" | "APPROVED" | "DECLINED";
+  employer_name: string;
+  company_name: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
   created_at: string;
-  company?: string | null;
-  company_name?: string | null;
-  applicant_id?: string | null;
-  national_id_plain?: string | null;
-};
+  decided_at: string | null;
+}
 
-type Paginated<T> = {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: T[];
-};
+interface Certificate {
+  id: number;
+  display_label: string;
+  issued_on: string;
+  institution_name: string;
+  file_hash: string;
+  status?: string;
+}
 
-/* ----------------------------- Constants ----------------------------- */
-const STATUS_STYLES = {
-  PENDING: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
-  APPROVED: { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
-  DECLINED: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500" },
-} as const;
+interface ApproveData {
+  certificate_ids: number[];
+  expiry_days: number;
+}
 
-/* ----------------------------- Main Component ----------------------------- */
-export default function AccessRequests() {
-  const [data, setData] = useState<Paginated<AccessReq> | null>(null);
-  const [search, setSearch] = useState("");
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"" | "PENDING" | "APPROVED" | "DECLINED">("");
-  const [fromDate, setFromDate] = useState<string>("");
-  const [toDate, setToDate] = useState<string>("");
-  const [pageUrl, setPageUrl] = useState("/my/requests/");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface ApiResponse<T> {
+  results?: T[];
+  certificates?: T[];
+  count?: number;
+}
 
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => setQ(search.trim().toLowerCase()), 300);
-    return () => clearTimeout(timer);
-  }, [search]);
+const AccessRequests = () => {
+  const queryClient = useQueryClient();
+  const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
+  const [selectedCertificates, setSelectedCertificates] = useState<number[]>([]);
+  const [expiryDays, setExpiryDays] = useState<number>(365);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
 
-  // Fetch data
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const path = pageUrl.startsWith("/api") ? pageUrl.replace("/api", "") : pageUrl;
-        const res = await api<Paginated<AccessReq>>(path);
-        if (!cancel) {
-          setData(res);
-          setLoading(false);
+  // Fetch access requests
+  const { data: requests, isLoading: requestsLoading } = useQuery({
+    queryKey: ['applicant-access-requests'],
+    queryFn: async () => {
+      const response = await api<ApiResponse<AccessRequest>>('/access/my/requests/');
+      return response.results || [];
+    },
+  });
+
+  // Fetch candidate certificates for selected request
+  const { data: certificates, isLoading: certificatesLoading } = useQuery({
+    queryKey: ['candidate-certificates', selectedRequest?.id],
+    queryFn: async () => {
+      if (!selectedRequest) return [];
+      const response = await api<ApiResponse<Certificate>>(
+        `/access/my/requests/${selectedRequest.id}/candidate_certificates/`
+      );
+      return response.certificates || [];
+    },
+    enabled: !!selectedRequest,
+  });
+
+  // Approve mutation
+  const approveMutation = useMutation({
+    mutationFn: async (data: { requestId: number; approveData: ApproveData }) => {
+      const response = await api<{
+        message: string;
+        shares_created: number;
+        blockchain_synced: number;
+        blockchain_errors?: any[];
+        warning?: string;
+      }>(`/access/my/requests/${data.requestId}/approve/`, {
+        method: 'POST',
+        body: JSON.stringify(data.approveData),
+      });
+      return response;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['applicant-access-requests'] });
+      setApproveDialogOpen(false);
+      setSelectedRequest(null);
+      setSelectedCertificates([]);
+      setExpiryDays(365);
+
+      let message = `✓ Request approved!\n\n${data.shares_created} certificate(s) shared successfully.`;
+      
+      if (data.blockchain_synced < data.shares_created) {
+        message += `\n\n⚠ Warning: Only ${data.blockchain_synced} of ${data.shares_created} synced to blockchain.`;
+        if (data.warning) {
+          message += `\n${data.warning}`;
         }
-      } catch (err: any) {
-        if (!cancel) {
-          setError(err?.userMessage || err?.message || "Failed to load requests");
-          setLoading(false);
-        }
+      } else {
+        message += `\n\n🔗 All certificates synced to blockchain.`;
       }
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [pageUrl, status, fromDate, toDate]);
 
-  // Filter results
-  const filtered = useMemo(() => {
-    const items = data?.results ?? [];
-    let result = items;
+      alert(message);
+    },
+    onError: (error: any) => {
+      alert(`Failed to approve: ${error.userMessage || error.message}`);
+    },
+  });
 
-    if (status) result = result.filter((r) => r.status === status);
+  // Reject mutation
+  const rejectMutation = useMutation({
+    mutationFn: async (requestId: number) => {
+      const response = await api<{ message: string }>(`/access/my/requests/${requestId}/reject/`, {
+        method: 'POST',
+      });
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['applicant-access-requests'] });
+      setRejectDialogOpen(false);
+      setSelectedRequest(null);
+      alert('Request rejected successfully');
+    },
+    onError: (error: any) => {
+      alert(`Failed to reject: ${error.userMessage || error.message}`);
+    },
+  });
 
-    if (fromDate) {
-      const fromTs = new Date(fromDate).getTime();
-      result = result.filter((r) => new Date(r.created_at).getTime() >= fromTs);
-    }
-    if (toDate) {
-      const toTs = new Date(toDate).getTime();
-      result = result.filter((r) => new Date(r.created_at).getTime() <= toTs);
-    }
-
-    if (!q) return result;
-    return result.filter((r) => {
-      const company = (r.company || r.company_name || "").toLowerCase();
-      const applicantId = (r.applicant_id || r.national_id_plain || "").toLowerCase();
-      const statusText = r.status.toLowerCase();
-      const date = new Date(r.created_at).toLocaleDateString().toLowerCase();
-      return company.includes(q) || applicantId.includes(q) || statusText.includes(q) || date.includes(q);
-    });
-  }, [q, status, fromDate, toDate, data?.results]);
-
-  const goto = (href: string | null) => {
-    if (!href) return;
-    const u = new URL(href, window.location.origin);
-    setPageUrl(u.pathname + u.search);
+  const handleApproveClick = (request: AccessRequest) => {
+    setSelectedRequest(request);
+    setSelectedCertificates([]);
+    setApproveDialogOpen(true);
   };
+
+  const handleRejectClick = (request: AccessRequest) => {
+    setSelectedRequest(request);
+    setRejectDialogOpen(true);
+  };
+
+  const handleCertificateToggle = (certId: number) => {
+    setSelectedCertificates((prev) =>
+      prev.includes(certId) ? prev.filter((id) => id !== certId) : [...prev, certId]
+    );
+  };
+
+  const handleApproveConfirm = () => {
+    if (!selectedRequest || selectedCertificates.length === 0) {
+      alert('Please select at least one certificate');
+      return;
+    }
+
+    approveMutation.mutate({
+      requestId: selectedRequest.id,
+      approveData: {
+        certificate_ids: selectedCertificates,
+        expiry_days: expiryDays,
+      },
+    });
+  };
+
+  const handleRejectConfirm = () => {
+    if (!selectedRequest) return;
+    rejectMutation.mutate(selectedRequest.id);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'PENDING':
+        return 'bg-yellow-50 text-yellow-700';
+      case 'APPROVED':
+        return 'bg-emerald-50 text-emerald-700';
+      case 'REJECTED':
+        return 'bg-red-50 text-red-700';
+      default:
+        return 'bg-gray-50 text-gray-700';
+    }
+  };
+
+  const getExpiryLabel = (days: number) => {
+    if (days === 0) return 'No expiry (Permanent)';
+    if (days === 30) return '30 days (1 month)';
+    if (days === 90) return '90 days (3 months)';
+    if (days === 180) return '180 days (6 months)';
+    if (days === 365) return '365 days (1 year)';
+    return `${days} days`;
+  };
+
+  if (requestsLoading) {
+    return (
+      <section className="pt-0 pb-6">
+        <div className="auth-wrap">
+          <div className="text-center py-10 text-gray-500">Loading…</div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="pt-0 pb-6">
@@ -109,243 +196,222 @@ export default function AccessRequests() {
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Access{" "}
+            Access{' '}
             <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
               Requests
             </span>
           </h1>
-          <p className="mt-1 text-gray-500">Manage incoming requests from employers</p>
+          <p className="mt-1 text-gray-500">Manage employer requests to access your certificates</p>
         </div>
 
-        {/* Error Banner */}
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between" role="alert">
-            <p className="text-sm text-red-700">{error}</p>
-            <button
-              onClick={() => setPageUrl(pageUrl)}
-              className="text-sm font-medium text-red-700 hover:text-red-900 underline ml-4"
-            >
-              Retry
-            </button>
+        {requests?.length === 0 ? (
+          <div className="auth-card">
+            <div className="text-center py-16 text-gray-500">
+              <p className="text-lg">No access requests yet</p>
+            </div>
+          </div>
+        ) : (
+          <div className="auth-card mt-0">
+            {/* Table */}
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold">Employer</th>
+                      <th className="px-4 py-3 text-left font-semibold">Status</th>
+                      <th className="px-4 py-3 text-left font-semibold">Requested On</th>
+                      <th className="px-4 py-3 text-left font-semibold">Decided On</th>
+                      <th className="px-4 py-3 text-left font-semibold">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {requests?.map((request: AccessRequest) => (
+                      <tr key={request.id} className="hover:bg-gray-50/60">
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          {request.employer_name || request.company_name}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-3 py-1.5 text-xs rounded-full ${getStatusColor(request.status)}`}>
+                            {request.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {new Date(request.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {request.decided_at ? new Date(request.decided_at).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          {request.status === 'PENDING' && (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleApproveClick(request)}
+                                className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-md hover:bg-emerald-700"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectClick(request)}
+                                className="px-3 py-1.5 bg-red-600 text-white text-xs rounded-md hover:bg-red-700"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="auth-card mt-0">
-          {/* Quick Status Filters */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setStatus("")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                status === "" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setStatus("PENDING")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                status === "PENDING" ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-700 hover:bg-amber-100"
-              }`}
-            >
-              Pending
-            </button>
-            <button
-              onClick={() => setStatus("APPROVED")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                status === "APPROVED" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-              }`}
-            >
-              Approved
-            </button>
-            <button
-              onClick={() => setStatus("DECLINED")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                status === "DECLINED" ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"
-              }`}
-            >
-              Declined
-            </button>
-          </div>
+        {/* Approve Dialog */}
+        {approveDialogOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Approve Access Request
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  From {selectedRequest?.employer_name || selectedRequest?.company_name}
+                </p>
+              </div>
 
-          {/* Search and Date Filters */}
-          <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="relative">
-              <input
-                id="access-search"
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by company, ID..."
-                className="w-full h-12 rounded-xl bg-gray-50 pl-11 pr-10 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
-              />
-              <svg
-                className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              {search && (
-                <button
-                  onClick={() => setSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-200"
-                  aria-label="Clear search"
-                >
-                  <svg className="h-4 w-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </button>
-              )}
-            </div>
-
-            <input
-              id="fromDate"
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              placeholder="From date"
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
-            />
-
-            <input
-              id="toDate"
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              placeholder="To date"
-              className="h-12 rounded-xl bg-gray-50 px-4 outline-none ring-0 focus:ring-2 focus:ring-indigo-500 border border-gray-200"
-            />
-          </div>
-
-          {/* Status Indicator */}
-          <div className="mb-4 flex items-center justify-end">
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-xl">
-              <span className={`inline-block h-2 w-2 rounded-full ${loading ? "bg-amber-500 animate-pulse" : "bg-emerald-500"}`} />
-              <span className="text-sm font-medium text-slate-700">
-                {loading ? "Loading..." : `${data?.count ?? 0} total`}
-              </span>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-hidden rounded-xl border border-black/5 bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold">Company</th>
-                    <th className="px-4 py-3 text-left font-semibold">Applicant ID</th>
-                    <th className="px-4 py-3 text-left font-semibold">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold">Date</th>
-                    <th className="px-4 py-3 text-left font-semibold w-28">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {loading ? (
-                    [...Array(5)].map((_, i) => (
-                      <tr key={i} className="animate-pulse">
-                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-32" /></td>
-                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-24" /></td>
-                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-20" /></td>
-                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-20" /></td>
-                        <td className="px-4 py-3"><div className="h-4 bg-gray-200 rounded w-16" /></td>
-                      </tr>
-                    ))
-                  ) : filtered.length > 0 ? (
-                    filtered.map((r) => {
-                      const style = STATUS_STYLES[r.status];
-                      return (
-                        <tr key={r.id} className="hover:bg-gray-50/60">
-                          <td className="px-4 py-3 font-medium">
-                            {r.company ?? r.company_name ?? "—"}
-                          </td>
-                          <td className="px-4 py-3 text-gray-600 font-mono text-xs">
-                            {r.applicant_id ?? r.national_id_plain ?? "—"}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${style.bg} ${style.text}`}>
-                              <span className={`h-2 w-2 rounded-full ${style.dot}`} />
-                              {r.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {new Date(r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Link
-                              to={`/applicant/requests/${r.id}`}
-                              className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md transition-colors"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                              </svg>
-                              View
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-12 text-center">
-                        <div className="text-gray-400">
-                          <svg className="mx-auto h-12 w-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <p className="text-sm font-medium text-gray-900">
-                            {q || status || fromDate || toDate ? "No matching requests" : "No access requests"}
-                          </p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            {q || status || fromDate || toDate ? "Try adjusting your filters" : "You don't have any requests yet"}
-                          </p>
-                          {(q || status || fromDate || toDate) && (
-                            <button
-                              onClick={() => {
-                                setSearch("");
-                                setStatus("");
-                                setFromDate("");
-                                setToDate("");
-                              }}
-                              className="mt-3 btn btn-outline text-sm"
-                            >
-                              Clear All Filters
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {!loading && filtered.length > 0 && (
-              <div className="p-3 flex items-center justify-between border-t border-gray-100">
-                <button
-                  className="btn btn-outline disabled:opacity-50"
-                  disabled={!data?.previous}
-                  onClick={() => goto(data?.previous!)}
-                >
-                  Previous
-                </button>
-                <div className="text-xs text-gray-500">
-                  {filtered.length} / {data?.count ?? 0}
+              <div className="p-6 space-y-6">
+                {/* Expiry Selector */}
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                    Access Expiry Period
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {[0, 30, 90, 180, 365].map((days) => (
+                      <button
+                        key={days}
+                        onClick={() => setExpiryDays(days)}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          expiryDays === days
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {getExpiryLabel(days)}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    value={expiryDays}
+                    onChange={(e) => setExpiryDays(parseInt(e.target.value) || 0)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                    placeholder="Custom days"
+                    min="0"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    {expiryDays === 0
+                      ? 'Permanent access (no expiry)'
+                      : `Access will expire in ${expiryDays} days`}
+                  </p>
                 </div>
+
+                {/* Certificate Selection */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                    Select Certificates to Share
+                  </label>
+                  {certificatesLoading ? (
+                    <div className="text-center py-10 text-gray-500">Loading certificates…</div>
+                  ) : certificates?.length === 0 ? (
+                    <div className="text-center py-10 text-gray-500">
+                      No certificates available to share
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {certificates?.map((cert: Certificate) => (
+                        <label
+                          key={cert.id}
+                          className="flex items-start gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCertificates.includes(cert.id)}
+                            onChange={() => handleCertificateToggle(cert.id)}
+                            className="mt-1"
+                          />
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">{cert.display_label}</p>
+                            <p className="text-sm text-gray-500">
+                              {cert.institution_name} • Issued: {new Date(cert.issued_on).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
                 <button
-                  className="btn btn-outline disabled:opacity-50"
-                  disabled={!data?.next}
-                  onClick={() => goto(data?.next!)}
+                  onClick={() => setApproveDialogOpen(false)}
+                  disabled={approveMutation.isPending}
+                  className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg"
                 >
-                  Next
+                  Cancel
+                </button>
+                <button
+                  onClick={handleApproveConfirm}
+                  disabled={approveMutation.isPending || selectedCertificates.length === 0}
+                  className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {approveMutation.isPending ? 'Approving…' : 'Approve & Share'}
                 </button>
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Reject Dialog */}
+        {rejectDialogOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-xl font-bold text-gray-900">Reject Access Request</h2>
+              </div>
+
+              <div className="p-6">
+                <p className="text-gray-700">
+                  Are you sure you want to reject the access request from{' '}
+                  <strong>{selectedRequest?.employer_name || selectedRequest?.company_name}</strong>?
+                </p>
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
+                <button
+                  onClick={() => setRejectDialogOpen(false)}
+                  disabled={rejectMutation.isPending}
+                  className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectConfirm}
+                  disabled={rejectMutation.isPending}
+                  className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  {rejectMutation.isPending ? 'Rejecting…' : 'Reject'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );
-}
+};
+
+export default AccessRequests;

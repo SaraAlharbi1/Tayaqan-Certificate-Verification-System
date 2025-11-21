@@ -1,260 +1,233 @@
-"""
-Blockchain service for certificate verification and management.
+# backend/api/blockchain/blockchain_service.py
 
-Based on CertificateRegistry.sol contract:
-- issueCertificate(certificateHash, applicantIdHash, certificateType, issueDate)
-- verifyCertificate(certificateHash) → (certificateType, issueDate, isRevoked)
-- revokeCertificate(certificateHash)
-- getApplicantCertificates(applicantIdHash) → certificateHash[]
-"""
-
-import json
-from typing import Dict, List, Optional, Tuple
+import logging
 from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 from eth_account import Account
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class BlockchainService:
-    """Service for interacting with CertificateRegistry smart contract."""
-
-    def __init__(self, w3: Web3, contract_address: str, contract_abi: list, private_key: str):
+    def __init__(self, contract_address: str, private_key: str = None):
         """
         Initialize blockchain service.
         
         Args:
-            w3: Web3 instance
-            contract_address: CertificateRegistry contract address
-            contract_abi: Contract ABI
-            private_key: Private key for signing transactions
+            contract_address: The deployed contract address
+            private_key: Private key for signing transactions (optional)
         """
-        self.w3 = w3
-        self.contract = w3.eth.contract(
-            address=Web3.to_checksum_address(contract_address),
-            abi=contract_abi
-        )
-        self.account = Account.from_key(private_key)
-        self.address = self.account.address
-
-    def verify_certificate(self, certificate_hash: str) -> Dict:
-        """
-        Verify a certificate on blockchain.
+        self.rpc_url = settings.BLOCKCHAIN_RPC_URL
+        self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
         
-        Calls: verifyCertificate(certificateHash)
-        Returns: {
-            "exists": bool,
-            "certificate_type": str,
-            "issue_date": int,
-            "is_revoked": bool
-        }
+        # Add PoA middleware for Hardhat/Ganache
+        self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+        
+        if not self.w3.is_connected():
+            raise ConnectionError(f"Failed to connect to blockchain at {self.rpc_url}")
+        
+        self.contract_address = Web3.to_checksum_address(contract_address)
+        self.contract = self._load_contract()
+        
+        # Setup signer if private key provided
+        self.signer_account = None
+        if private_key:
+            self.signer_account = Account.from_key(private_key)
+            logger.info(f"Blockchain service initialized with signer: {self.signer_account.address}")
+        else:
+            logger.info("Blockchain service initialized (read-only)")
+
+    def _load_contract(self):
+        """Load contract ABI."""
+        import json
+        from pathlib import Path
+        
+        abi_path = Path(__file__).parent / "CertificateRegistry.json"
+        
+        with open(abi_path, "r") as f:
+            contract_data = json.load(f)
+            abi = contract_data.get("abi", [])
+        
+        return self.w3.eth.contract(address=self.contract_address, abi=abi)
+
+    def add_employer_access(
+        self,
+        file_hash: str,
+        employer_id_hash: str,
+        expiry_timestamp: int = 0
+    ) -> dict:
         """
+        Add employer access on blockchain.
+        
+        Args:
+            file_hash: Certificate file hash
+            employer_id_hash: Employer ID hash
+            expiry_timestamp: Expiry timestamp (0 = no expiry)
+            
+        Returns:
+            {"success": bool, "tx_hash": str, "error": str}
+        """
+        if not self.signer_account:
+            return {"success": False, "error": "No signer account configured"}
+        
         try:
-            # Normalize hash
-            cert_hash = self._normalize_hash(certificate_hash)
+            # Normalize hashes
+            file_hash = file_hash if file_hash.startswith("0x") else f"0x{file_hash}"
+            employer_id_hash = employer_id_hash if employer_id_hash.startswith("0x") else f"0x{employer_id_hash}"
             
-            # Call contract
-            certificate_type, issue_date, is_revoked = self.contract.functions.verifyCertificate(
-                cert_hash
-            ).call()
-            
-            # Check if certificate exists (non-empty type means it exists)
-            exists = len(certificate_type) > 0
-            
-            return {
-                "file_hash": cert_hash,  # Use file_hash for consistency with API
-                "exists": exists,
-                "certificate_type": certificate_type,
-                "issue_date": issue_date,
-                "is_revoked": is_revoked,
-            }
-        except Exception as e:
-            print(f"Error verifying certificate {certificate_hash}: {e}")
-            return {
-                "file_hash": self._normalize_hash(certificate_hash),  # Use file_hash for consistency
-                "exists": False,
-                "certificate_type": "",
-                "issue_date": 0,
-                "is_revoked": False,
-            }
-
-    def verify_certificates_batch(self, certificate_hashes: List[str]) -> List[Dict]:
-        """
-        Verify multiple certificates in batch.
-        
-        Returns: List of verification results
-        """
-        results = []
-        for cert_hash in certificate_hashes:
-            result = self.verify_certificate(cert_hash)
-            results.append(result)
-        return results
-
-    def revoke_certificate(self, certificate_hash: str) -> Dict:
-        """
-        Revoke a certificate on blockchain.
-        
-        Calls: revokeCertificate(certificateHash)
-        Requires: msg.sender == institutionWallet
-        
-        Returns: {
-            "success": bool,
-            "tx_hash": str,
-            "block_number": int,
-            "error": str (if failed)
-        }
-        """
-        try:
-            # Normalize hash
-            cert_hash = self._normalize_hash(certificate_hash)
+            # Get nonce
+            nonce = self.w3.eth.get_transaction_count(self.signer_account.address)
             
             # Build transaction
-            nonce = self.w3.eth.get_transaction_count(self.address)
-            
-            tx = self.contract.functions.revokeCertificate(
-                cert_hash
+            transaction = self.contract.functions.addEmployerAccess(
+                file_hash,
+                Web3.to_bytes(hexstr=employer_id_hash),
+                expiry_timestamp
             ).build_transaction({
-                'from': self.address,
+                'from': self.signer_account.address,
+                'nonce': nonce,
+                'gas': 300000,
+                'gasPrice': self.w3.eth.gas_price,
+            })
+            
+            # Sign and send
+            signed_txn = self.w3.eth.account.sign_transaction(
+                transaction,
+                private_key=self.signer_account.key
+            )
+            
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+            tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if tx_receipt.status == 1:
+                logger.info(f"✓ Employer access added: {tx_hash.hex()}")
+                return {
+                    "success": True,
+                    "tx_hash": tx_hash.hex(),
+                    "block_number": tx_receipt.blockNumber
+                }
+            else:
+                logger.error(f"✗ Transaction failed: {tx_hash.hex()}")
+                return {
+                    "success": False,
+                    "error": "Transaction reverted",
+                    "tx_hash": tx_hash.hex()
+                }
+                
+        except Exception as e:
+            logger.error(f"✗ Error adding employer access: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    def remove_employer_access(
+        self,
+        file_hash: str,
+        employer_id_hash: str
+    ) -> dict:
+        """Remove employer access from blockchain."""
+        if not self.signer_account:
+            return {"success": False, "error": "No signer account configured"}
+        
+        try:
+            file_hash = file_hash if file_hash.startswith("0x") else f"0x{file_hash}"
+            employer_id_hash = employer_id_hash if employer_id_hash.startswith("0x") else f"0x{employer_id_hash}"
+            
+            nonce = self.w3.eth.get_transaction_count(self.signer_account.address)
+            
+            transaction = self.contract.functions.removeEmployerAccess(
+                file_hash,
+                Web3.to_bytes(hexstr=employer_id_hash)
+            ).build_transaction({
+                'from': self.signer_account.address,
                 'nonce': nonce,
                 'gas': 200000,
                 'gasPrice': self.w3.eth.gas_price,
             })
             
-            # Sign transaction
-            signed_tx = self.w3.eth.account.sign_transaction(tx, self.account.key)
+            signed_txn = self.w3.eth.account.sign_transaction(
+                transaction,
+                private_key=self.signer_account.key
+            )
             
-            # Send transaction - ✅ FIXED: Use raw_transaction instead of rawTransaction
-            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+            tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
-            # Wait for receipt
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-            
-            if receipt.status == 1:
+            if tx_receipt.status == 1:
+                logger.info(f"✓ Employer access removed: {tx_hash.hex()}")
                 return {
                     "success": True,
                     "tx_hash": tx_hash.hex(),
-                    "block_number": receipt.blockNumber,
+                    "block_number": tx_receipt.blockNumber
                 }
             else:
                 return {
                     "success": False,
-                    "error": "Transaction failed",
+                    "error": "Transaction reverted",
+                    "tx_hash": tx_hash.hex()
                 }
                 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-            }
+            logger.error(f"✗ Error removing employer access: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
-    def get_applicant_certificates(self, applicant_id_hash: str) -> List[str]:
+    def check_employer_access(
+        self,
+        file_hash: str,
+        employer_id_hash: str
+    ) -> dict:
         """
-        Get all certificate hashes for an applicant.
+        Check if employer has access on blockchain.
         
-        Calls: getApplicantCertificates(applicantIdHash)
-        Returns: List of certificate hashes
+        Returns:
+            {"has_access": bool, "expiry_date": int}
         """
         try:
-            # Normalize hash (bytes32)
-            if isinstance(applicant_id_hash, str):
-                if applicant_id_hash.startswith('0x'):
-                    applicant_hash = applicant_id_hash
-                else:
-                    applicant_hash = '0x' + applicant_id_hash
-            else:
-                applicant_hash = applicant_id_hash
+            file_hash = file_hash if file_hash.startswith("0x") else f"0x{file_hash}"
+            employer_id_hash = employer_id_hash if employer_id_hash.startswith("0x") else f"0x{employer_id_hash}"
             
-            # Call contract
-            cert_hashes = self.contract.functions.getApplicantCertificates(
-                Web3.to_bytes(hexstr=applicant_hash)
+            # Call smart contract (read-only)
+            result = self.contract.functions.checkEmployerAccess(
+                file_hash,
+                Web3.to_bytes(hexstr=employer_id_hash)
             ).call()
             
-            return cert_hashes
+            has_access = result[0]
+            expiry_timestamp = result[1]
+            
+            logger.info(
+                f"Blockchain check: fileHash={file_hash[:10]}..., "
+                f"hasAccess={has_access}, expiry={expiry_timestamp}"
+            )
+            
+            return {
+                "has_access": has_access,
+                "expiry_date": expiry_timestamp
+            }
             
         except Exception as e:
-            print(f"Error getting applicant certificates: {e}")
-            return []
-
-    def _normalize_hash(self, hash_value: str) -> str:
-        """Normalize hash to 0x-prefixed lowercase string."""
-        if not hash_value:
-            return ""
-        hash_value = hash_value.strip().lower()
-        if not hash_value.startswith("0x"):
-            hash_value = "0x" + hash_value
-        return hash_value
+            logger.error(f"Error checking employer access: {e}", exc_info=True)
+            return {
+                "has_access": False,
+                "expiry_date": 0
+            }
 
 
-def create_blockchain_service(
-    contract_address: str,
-    w3: Optional[Web3] = None,
-    private_key: Optional[str] = None
-) -> Optional[BlockchainService]:
+def create_blockchain_service(contract_address: str, use_admin_wallet: bool = True) -> BlockchainService:
     """
-    Factory function to create BlockchainService instance.
+    Factory function to create blockchain service.
     
     Args:
-        contract_address: CertificateRegistry contract address
-        w3: Optional Web3 instance (will use default if not provided)
-        private_key: Optional private key (will use default if not provided)
-    
+        contract_address: Contract address
+        use_admin_wallet: Use admin private key for signing
+        
     Returns:
-        BlockchainService instance or None if not configured
+        BlockchainService instance
     """
-    from helpers.web3_client import w3 as default_w3, ADMIN_PRIVATE_KEY
-    from helpers.contracts import CertificateRegistry_abi
+    private_key = None
     
-    # Use provided or default Web3
-    web3_instance = w3 or default_w3
-    if not web3_instance:
-        print("❌ [blockchain_service] Web3 not configured")
-        return None
+    if use_admin_wallet:
+        private_key = settings.ADMIN_PRIVATE_KEY
+        if not private_key:
+            logger.warning("ADMIN_PRIVATE_KEY not configured")
     
-    # Use provided or default private key
-    key = private_key or ADMIN_PRIVATE_KEY
-    if not key:
-        print("❌ [blockchain_service] Private key not configured")
-        return None
-    
-    # Check ABI
-    if not CertificateRegistry_abi:
-        print("❌ [blockchain_service] CertificateRegistry ABI not loaded")
-        return None
-    
-    # Create service
-    try:
-        service = BlockchainService(
-            w3=web3_instance,
-            contract_address=contract_address,
-            contract_abi=CertificateRegistry_abi,
-            private_key=key
-        )
-        print(f"✅ [blockchain_service] Service created for contract: {contract_address}")
-        return service
-    except Exception as e:
-        print(f"❌ [blockchain_service] Failed to create service: {e}")
-        return None
-
-
-# Convenience functions for common operations
-
-def verify_certificate(contract_address: str, certificate_hash: str) -> Dict:
-    """Verify a single certificate."""
-    service = create_blockchain_service(contract_address)
-    if not service:
-        return {"exists": False, "error": "Blockchain service not available"}
-    return service.verify_certificate(certificate_hash)
-
-
-def verify_certificates_batch(contract_address: str, certificate_hashes: List[str]) -> List[Dict]:
-    """Verify multiple certificates."""
-    service = create_blockchain_service(contract_address)
-    if not service:
-        return [{"exists": False, "error": "Blockchain service not available"} for _ in certificate_hashes]
-    return service.verify_certificates_batch(certificate_hashes)
-
-
-def revoke_certificate(contract_address: str, certificate_hash: str) -> Dict:
-    """Revoke a certificate."""
-    service = create_blockchain_service(contract_address)
-    if not service:
-        return {"success": False, "error": "Blockchain service not available"}
-    return service.revoke_certificate(certificate_hash)
+    return BlockchainService(contract_address, private_key)
