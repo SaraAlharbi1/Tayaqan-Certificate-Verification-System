@@ -39,10 +39,58 @@ def institution_approved(institution):
 
 
 # ============================================================
-# Blockchain Deployment (FULLY FIXED INDENTATION)
+# Gas Estimation Helpers
+# ============================================================
+
+# Buffer for gas estimation (20% extra for safety)
+GAS_BUFFER = 1.2
+
+# Fallback values if estimation fails
+FALLBACK_GAS = {
+    'deploy_certificate_registry': 2500000,  # Contract deployment needs more gas
+    'register_institution': 300000,
+}
+
+
+def _estimate_gas(w3, transaction_dict, fallback_key: str) -> int:
+    """
+    Estimate gas for a transaction with buffer.
+    Falls back to predefined limits if estimation fails.
+    
+    Args:
+        w3: Web3 instance
+        transaction_dict: Transaction parameters for estimation
+        fallback_key: Key for fallback gas lookup
+    
+    Returns:
+        Estimated gas with buffer, or fallback value
+    """
+    try:
+        estimated = w3.eth.estimate_gas(transaction_dict)
+        gas_with_buffer = int(estimated * GAS_BUFFER)
+        logger.info(f"⛽ Gas estimated: {estimated:,} → with buffer: {gas_with_buffer:,}")
+        return gas_with_buffer
+    except Exception as e:
+        fallback = FALLBACK_GAS.get(fallback_key, 500000)
+        logger.warning(f"⚠️ Gas estimation failed ({e}), using fallback: {fallback:,}")
+        return fallback
+
+
+# ============================================================
+# Blockchain Deployment
 # ============================================================
 
 def _deploy_certificate_registry_and_register(institution_wallet: str, institution_id: str, institution_name: str):
+    """
+    Deploy a CertificateRegistry contract for an institution and register it.
+    
+    Steps:
+        1. Deploy CertificateRegistry contract
+        2. Register institution in InstitutionRegistry
+    
+    Returns:
+        (contract_address, success): Tuple of deployed address and success flag
+    """
     try:
         from helpers.web3_client import w3, ADMIN_ADDRESS, ADMIN_PRIVATE_KEY, INSTITUTION_REGISTRY_ADDRESS
         from helpers.contracts import CertificateRegistry_abi, InstitutionRegistry_abi
@@ -61,9 +109,9 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
         # -------------------------------------------
         # Locate Artifact
         # -------------------------------------------
-        current_dir = os.path.dirname(os.path.abspath(__file__))     # backend/api/accounts
-        backend_dir = os.path.dirname(os.path.dirname(current_dir))  # backend
-        project_root = os.path.dirname(backend_dir)                  # project root
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        backend_dir = os.path.dirname(os.path.dirname(current_dir))
+        project_root = os.path.dirname(backend_dir)
 
         artifacts_path = os.path.join(
             project_root,
@@ -77,7 +125,7 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
         logger.info(f"📂 Looking for artifact at: {artifacts_path}")
 
         if not os.path.exists(artifacts_path):
-            logger.error(f"❌ Artifact not found!")
+            logger.error("❌ Artifact not found!")
             return None, False
 
         with open(artifacts_path, "r", encoding="utf-8") as f:
@@ -97,15 +145,19 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
 
         nonce = w3.eth.get_transaction_count(deployer.address)
 
+        # Build constructor transaction for gas estimation
         deploy_tx = CertificateRegistry.constructor(
             Web3.to_checksum_address(institution_wallet),
             ADMIN_ADDRESS
         ).build_transaction({
             "from": deployer.address,
             "nonce": nonce,
-            "gas": 3000000,
             "gasPrice": w3.eth.gas_price,
         })
+
+        # Estimate gas for deployment
+        estimated_gas = _estimate_gas(w3, deploy_tx, 'deploy_certificate_registry')
+        deploy_tx['gas'] = estimated_gas
 
         signed = w3.eth.account.sign_transaction(deploy_tx, ADMIN_PRIVATE_KEY)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
@@ -121,6 +173,7 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
         cert_registry_address = receipt.contractAddress
 
         logger.info(f"✅ CertificateRegistry deployed at: {cert_registry_address}")
+        logger.info(f"⛽ Gas used: {receipt.gasUsed:,} / {estimated_gas:,}")
 
         # -------------------------------------------
         # STEP 2 — Register in InstitutionRegistry
@@ -133,6 +186,7 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
 
         nonce = w3.eth.get_transaction_count(deployer.address)
 
+        # Build registration transaction
         register_tx = registry_contract.functions.registerInstitution(
             institution_id,
             institution_name,
@@ -141,9 +195,12 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
         ).build_transaction({
             "from": deployer.address,
             "nonce": nonce,
-            "gas": 500000,
             "gasPrice": w3.eth.gas_price,
         })
+
+        # Estimate gas for registration
+        estimated_gas = _estimate_gas(w3, register_tx, 'register_institution')
+        register_tx['gas'] = estimated_gas
 
         signed = w3.eth.account.sign_transaction(register_tx, ADMIN_PRIVATE_KEY)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
@@ -157,6 +214,8 @@ def _deploy_certificate_registry_and_register(institution_wallet: str, instituti
             return cert_registry_address, False
 
         logger.info("✅ Institution registered successfully")
+        logger.info(f"⛽ Gas used: {receipt.gasUsed:,} / {estimated_gas:,}")
+        
         return cert_registry_address, True
 
     except Exception as e:

@@ -8,6 +8,15 @@ logger = logging.getLogger(__name__)
 
 
 class BlockchainService:
+    # Gas estimation buffer (20% extra for safety)
+    GAS_BUFFER = 1.2
+    # Fallback gas limits if estimation fails
+    FALLBACK_GAS = {
+        'addEmployerAccess': 150000,
+        'removeEmployerAccess': 100000,
+        'default': 200000,
+    }
+
     def __init__(self, contract_address: str, private_key: str = None):
         """
         Initialize blockchain service.
@@ -54,6 +63,38 @@ class BlockchainService:
 
         return self.w3.eth.contract(address=self.contract_address, abi=abi)
 
+    def _estimate_gas(self, function_call, from_address: str, fallback_key: str = 'default') -> int:
+        """
+        Estimate gas for a contract function call with buffer.
+        Falls back to predefined limits if estimation fails.
+        """
+        try:
+            estimated = function_call.estimate_gas({'from': from_address})
+            gas_with_buffer = int(estimated * self.GAS_BUFFER)
+            logger.debug(f"Gas estimated: {estimated}, with buffer: {gas_with_buffer}")
+            return gas_with_buffer
+        except Exception as e:
+            fallback = self.FALLBACK_GAS.get(fallback_key, self.FALLBACK_GAS['default'])
+            logger.warning(f"Gas estimation failed ({e}), using fallback: {fallback}")
+            return fallback
+
+    def _get_gas_price(self) -> int:
+        """
+        Get current gas price with optional priority fee for faster confirmation.
+        """
+        try:
+            # Try EIP-1559 style (for networks that support it)
+            base_fee = self.w3.eth.get_block('latest').get('baseFeePerGas')
+            if base_fee:
+                # Add priority fee (tip) for faster confirmation
+                priority_fee = self.w3.to_wei(1, 'gwei')
+                return base_fee + priority_fee
+        except Exception:
+            pass
+        
+        # Fallback to legacy gas price
+        return self.w3.eth.gas_price
+
     def add_employer_access(self, file_hash: str, employer_id_hash: str, expiry_timestamp: int = 0) -> dict:
         """Add employer access on blockchain."""
         if not self.signer_account:
@@ -65,15 +106,25 @@ class BlockchainService:
 
             nonce = self.w3.eth.get_transaction_count(self.signer_account.address)
 
-            transaction = self.contract.functions.addEmployerAccess(
+            # Prepare the function call
+            function_call = self.contract.functions.addEmployerAccess(
                 file_hash,
                 Web3.to_bytes(hexstr=employer_id_hash),
                 expiry_timestamp
-            ).build_transaction({
+            )
+
+            # Estimate gas dynamically
+            estimated_gas = self._estimate_gas(
+                function_call, 
+                self.signer_account.address, 
+                'addEmployerAccess'
+            )
+
+            transaction = function_call.build_transaction({
                 'from': self.signer_account.address,
                 'nonce': nonce,
-                'gas': 300000,
-                'gasPrice': self.w3.eth.gas_price,
+                'gas': estimated_gas,
+                'gasPrice': self._get_gas_price(),
             })
 
             signed_txn = self.w3.eth.account.sign_transaction(
@@ -85,7 +136,13 @@ class BlockchainService:
             tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
             if tx_receipt.status == 1:
-                return {"success": True, "tx_hash": tx_hash.hex(), "block_number": tx_receipt.blockNumber}
+                logger.info(f"addEmployerAccess success - gas used: {tx_receipt.gasUsed}/{estimated_gas}")
+                return {
+                    "success": True, 
+                    "tx_hash": tx_hash.hex(), 
+                    "block_number": tx_receipt.blockNumber,
+                    "gas_used": tx_receipt.gasUsed
+                }
             else:
                 return {"success": False, "error": "Transaction reverted", "tx_hash": tx_hash.hex()}
 
@@ -104,14 +161,24 @@ class BlockchainService:
 
             nonce = self.w3.eth.get_transaction_count(self.signer_account.address)
 
-            transaction = self.contract.functions.removeEmployerAccess(
+            # Prepare the function call
+            function_call = self.contract.functions.removeEmployerAccess(
                 file_hash,
                 Web3.to_bytes(hexstr=employer_id_hash)
-            ).build_transaction({
+            )
+
+            # Estimate gas dynamically
+            estimated_gas = self._estimate_gas(
+                function_call, 
+                self.signer_account.address, 
+                'removeEmployerAccess'
+            )
+
+            transaction = function_call.build_transaction({
                 'from': self.signer_account.address,
                 'nonce': nonce,
-                'gas': 200000,
-                'gasPrice': self.w3.eth.gas_price,
+                'gas': estimated_gas,
+                'gasPrice': self._get_gas_price(),
             })
 
             signed_txn = self.w3.eth.account.sign_transaction(
@@ -123,7 +190,13 @@ class BlockchainService:
             tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
             if tx_receipt.status == 1:
-                return {"success": True, "tx_hash": tx_hash.hex(), "block_number": tx_receipt.blockNumber}
+                logger.info(f"removeEmployerAccess success - gas used: {tx_receipt.gasUsed}/{estimated_gas}")
+                return {
+                    "success": True, 
+                    "tx_hash": tx_hash.hex(), 
+                    "block_number": tx_receipt.blockNumber,
+                    "gas_used": tx_receipt.gasUsed
+                }
             else:
                 return {"success": False, "error": "Transaction reverted", "tx_hash": tx_hash.hex()}
 
@@ -160,7 +233,6 @@ class BlockchainService:
         try:
             file_hash = file_hash if file_hash.startswith("0x") else f"0x{file_hash}"
             
-            # ✅ FIXED: Correct field mapping for verifyCertificate
             # Returns: (certificateType, issueDate, isRevoked, employerCount)
             result = self.contract.functions.verifyCertificate(file_hash).call()
             

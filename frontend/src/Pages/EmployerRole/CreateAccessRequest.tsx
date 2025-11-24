@@ -3,13 +3,18 @@ import { useMemo, useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 
+interface ApplicantData {
+  full_name: string;
+  email?: string;
+}
+
 export default function CreateAccessRequest() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState(false);
-  const [applicantData, setApplicantData] = useState<{full_name: string; email?: string} | null>(null);
+  const [applicantData, setApplicantData] = useState<ApplicantData | null>(null);
   const [fetchingApplicant, setFetchingApplicant] = useState(false);
   const [applicantError, setApplicantError] = useState<string>("");
 
@@ -19,19 +24,15 @@ export default function CreateAccessRequest() {
   // Fetch applicant data when valid ID is entered
   useEffect(() => {
     let cancel = false;
-    
+
     if (looksLikeId && trimmed) {
       setFetchingApplicant(true);
       setApplicantError("");
       setApplicantData(null);
-      
-      // Debounce the API call
+
       const timer = setTimeout(async () => {
         try {
-          // Changed: Use the accounts endpoint to verify applicant
-          const response = await api<{full_name: string; email?: string}>(
-            `/accounts/applicants/verify/${trimmed}/`
-          );
+          const response = await api<ApplicantData>(`/accounts/applicants/verify/${trimmed}/`);
           if (!cancel) {
             setApplicantData(response);
             setApplicantError("");
@@ -39,25 +40,13 @@ export default function CreateAccessRequest() {
           }
         } catch (e: any) {
           if (!cancel) {
-            let errorMessage = "Applicant not found";
-            
-            if (e?.userMessage) {
-              errorMessage = e.userMessage;
-            } else if (e?.response?.data?.detail) {
-              errorMessage = e.response.data.detail;
-            } else if (e?.response?.data?.message) {
-              errorMessage = e.response.data.message;
-            } else if (e?.message) {
-              errorMessage = e.message;
-            }
-            
-            setApplicantError(errorMessage);
+            setApplicantError(e?.userMessage || e?.message || "Applicant not found");
             setApplicantData(null);
             setFetchingApplicant(false);
           }
         }
       }, 500);
-      
+
       return () => {
         cancel = true;
         clearTimeout(timer);
@@ -69,75 +58,68 @@ export default function CreateAccessRequest() {
     }
   }, [looksLikeId, trimmed]);
 
-
   const handleSubmit = async () => {
-  if (!looksLikeId || !applicantData) {
-    if (!applicantData && looksLikeId) {
-      setError("Cannot send request: Applicant not found");
+    if (!looksLikeId || !applicantData) return;
+
+    try {
+      setSubmitting(true);
+      setError("");
+
+      await api("/access/employer/requests/", {
+        method: "POST",
+        body: JSON.stringify({ applicant_national_id: trimmed }),
+      });
+
+      setSuccess(true);
+      setQuery("");
+      setTimeout(() => navigate("/employer/access"), 1500);
+    } catch (e: any) {
+      let errorMessage = "Failed to create request";
+      if (e?.data?.applicant_national_id) errorMessage = e.data.applicant_national_id[0];
+      else if (e?.data?.detail) errorMessage = e.data.detail;
+      else if (e?.userMessage) errorMessage = e.userMessage;
+      setError(errorMessage);
+      setSubmitting(false);
     }
-    return;
-  }
-  
-  try {
-    setSubmitting(true);
-    setError("");
-    setSuccess(false);
-    
-    // FIX: Change back to applicant_national_id to match backend
-    await api("/access/employer/requests/", {
-      method: "POST",
-      body: JSON.stringify({ applicant_national_id: trimmed }),
-    });
-    
-    setSuccess(true);
-    setQuery("");
-    
-    setTimeout(() => {
-      navigate("/employer/access");
-    }, 1500);
-    
-  } catch (e: any) {
-    // Better error display
-    let errorMessage = "Failed to create request. Please try again.";
-    
-    if (e?.data?.applicant_national_id) {
-      errorMessage = e.data.applicant_national_id[0];
-    } else if (e?.data?.detail) {
-      errorMessage = e.data.detail;
-    } else if (e?.userMessage) {
-      errorMessage = e.userMessage;
-    } else if (e?.message) {
-      errorMessage = e.message;
-    }
-    
-    setError(errorMessage);
-    setSubmitting(false);
-  }
-};
+  };
 
   return (
-    <section className="pt-0 pb-6">
-      <div className="auth-wrap">
-        <div className="mb-6">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Create Access{" "}
-            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              Request
-            </span>
-          </h1>
-          <p className="mt-1 text-gray-500">Enter the applicant's national ID to request access</p>
+    <section className="min-h-screen bg-white py-8 px-4">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+              New{" "}
+              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                Request
+              </span>
+            </h1>
+            <p className="mt-1 text-gray-500">Request access to an applicant's certificates</p>
+          </div>
+          <Link
+            to="/employer/access"
+            className="inline-flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
+          </Link>
         </div>
 
         {/* Success Message */}
         {success && (
-          <div className="mb-6 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
               <div>
-                <p className="text-sm font-semibold text-emerald-800">Request sent successfully!</p>
-                <p className="text-sm text-emerald-700 mt-1">Redirecting to access requests...</p>
+                <p className="text-lg font-semibold text-emerald-800">Request sent successfully!</p>
+                <p className="text-sm text-emerald-700">Redirecting to access requests...</p>
               </div>
             </div>
           </div>
@@ -145,73 +127,110 @@ export default function CreateAccessRequest() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 rounded-xl border-2 border-red-200 bg-red-50 p-4">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
               <div>
-                <p className="text-sm font-semibold text-red-800">Failed to create request</p>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
+                <p className="text-lg font-semibold text-red-800">Failed to create request</p>
+                <p className="text-sm text-red-700">{error}</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Input Card */}
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="p-6">
-            <div className="mb-4">
-              <label htmlFor="search" className="mb-2 block text-sm font-semibold text-gray-700">
+        {/* Main Card */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="p-6 md:p-8">
+            {/* Step Indicator */}
+            <div className="mb-8">
+              <div className="flex items-center gap-4">
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold text-sm ${
+                  trimmed ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600'
+                }`}>
+                  1
+                </div>
+                <div className="flex-1 h-1 bg-gray-200 rounded">
+                  <div className={`h-full bg-indigo-600 rounded transition-all ${looksLikeId ? 'w-1/2' : 'w-0'}`}></div>
+                </div>
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold text-sm ${
+                  applicantData ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>
+                  2
+                </div>
+              </div>
+              <div className="flex justify-between mt-2">
+                <span className="text-xs text-gray-500">Enter ID</span>
+                <span className="text-xs text-gray-500">Verify & Send</span>
+              </div>
+            </div>
+
+            {/* Input */}
+            <div className="mb-6">
+              <label htmlFor="nationalId" className="block text-sm font-semibold text-gray-700 mb-2">
                 Applicant National ID
               </label>
-              <input
-                id="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                placeholder="Enter 10-digit National ID"
-                disabled={submitting || success}
-                className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-gray-900 outline-none ring-0 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              />
-              {trimmed && (
-                <div className="flex items-center mt-2">
-                  <p className={`text-sm font-medium ${looksLikeId ? "text-emerald-600" : "text-red-600"}`}>
-                    {looksLikeId ? "✓ Valid format" : "✗ Invalid format (must be 10 digits)"}
-                  </p>
-                </div>
+              <div className="relative">
+                <input
+                  id="nationalId"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                  placeholder="Enter 10-digit National ID"
+                  disabled={submitting || success}
+                  className="w-full h-14 pl-5 pr-12 rounded-xl border-2 border-gray-200 bg-gray-50 text-lg font-mono tracking-wider outline-none transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100 disabled:opacity-50"
+                />
+                {trimmed && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                    {looksLikeId ? (
+                      <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    )}
+                  </div>
+                )}
+              </div>
+              {trimmed && !looksLikeId && (
+                <p className="mt-2 text-sm text-red-600">Please enter exactly 10 digits</p>
               )}
             </div>
 
-            {/* Applicant Preview Card */}
+            {/* Applicant Preview */}
             {looksLikeId && (
-              <div className="mb-4">
+              <div className="mb-6">
                 {fetchingApplicant && (
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 flex items-center gap-3">
-                    <svg className="animate-spin h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24">
+                  <div className="rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 p-6 flex items-center justify-center gap-3">
+                    <svg className="animate-spin h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    <p className="text-sm text-gray-600">Verifying applicant...</p>
+                    <p className="text-gray-600 font-medium">Verifying applicant...</p>
                   </div>
                 )}
 
                 {!fetchingApplicant && applicantData && (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 p-2 bg-emerald-100 rounded-lg">
-                        <svg className="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
+                  <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <span className="text-emerald-700 font-bold text-xl">
+                          {applicantData.full_name?.charAt(0)?.toUpperCase() || '?'}
+                        </span>
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm font-semibold text-emerald-800">Applicant Found</p>
-                        <p className="text-base font-bold text-emerald-900 mt-1">{applicantData.full_name}</p>
+                        <p className="text-xs font-medium text-emerald-600 uppercase tracking-wider">Applicant Found</p>
+                        <p className="text-xl font-bold text-gray-900 mt-1">{applicantData.full_name}</p>
                         {applicantData.email && (
-                          <p className="text-sm text-emerald-700 mt-0.5">{applicantData.email}</p>
+                          <p className="text-sm text-gray-600 mt-0.5">{applicantData.email}</p>
                         )}
                       </div>
-                      <svg className="w-6 h-6 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-8 h-8 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
@@ -219,13 +238,17 @@ export default function CreateAccessRequest() {
                 )}
 
                 {!fetchingApplicant && applicantError && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 flex items-start gap-3">
-                    <svg className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                      <p className="text-sm font-semibold text-red-800">Applicant Not Found</p>
-                      <p className="text-sm text-red-700 mt-1">{applicantError}</p>
+                  <div className="rounded-xl border-2 border-red-200 bg-red-50 p-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+                        <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-lg font-semibold text-red-800">Applicant Not Found</p>
+                        <p className="text-sm text-red-700 mt-0.5">{applicantError}</p>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -233,22 +256,22 @@ export default function CreateAccessRequest() {
             )}
 
             {/* Info Box */}
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 flex gap-3">
-              <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 flex gap-3">
+              <svg className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="text-sm text-blue-800">
-                <p className="font-semibold mb-1">About Access Requests</p>
-                <p>When you send a request, the applicant will be notified and can choose to approve or decline sharing their certificates with you.</p>
+                <p className="font-semibold mb-1">How it works</p>
+                <p>The applicant will receive a notification and can choose which certificates to share with you.</p>
               </div>
             </div>
           </div>
 
           {/* Footer */}
           <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 flex items-center justify-between">
-            <Link 
-              to="/employer/access" 
-              className="text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+            <Link
+              to="/employer/access"
+              className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
             >
               Cancel
             </Link>
@@ -256,11 +279,7 @@ export default function CreateAccessRequest() {
               type="button"
               onClick={handleSubmit}
               disabled={!looksLikeId || !applicantData || submitting || success}
-              className={`inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors ${
-                !looksLikeId || !applicantData || submitting || success
-                  ? "opacity-50 cursor-not-allowed"
-                  : ""
-              }`}
+              className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <>

@@ -225,6 +225,7 @@ class InstitutionCertificateViewSet(viewsets.ReadOnlyModelViewSet):
             created_by_user=request.user,
             file_cid=data["cid"],
             display_label=data["title"],
+            certificate_type=data.get("certificate_type"),
             issued_on=data.get("issued_on"),
             national_id_plain=applicant.national_id_plain,
             file_hash=data["file_hash"],

@@ -11,6 +11,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from web3 import Web3
+from django.shortcuts import redirect
+
 
 from .models import AccessRequest, AccessShare
 from .serializers import (
@@ -786,14 +788,14 @@ class EmployerCertificateViewSet(viewsets.ViewSet):
             )
         
         # ✅ REDIRECT TO STORACHA
-        if not cert.storacha_cid:
+        if not cert.file_cid:
             return Response(
                 {"error": "Certificate file not available"},
                 status=status.HTTP_404_NOT_FOUND
             )
         
         # Redirect browser directly to Storacha gateway
-        gateway_url = f"https://{cert.storacha_cid}.ipfs.w3s.link"
+        gateway_url = f"https://{cert.file_cid}.ipfs.w3s.link"
         return redirect(gateway_url)
     
     def _verify_on_blockchain(self, certificate, employer_id_hash: str) -> dict:

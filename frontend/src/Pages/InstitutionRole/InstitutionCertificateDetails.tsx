@@ -3,189 +3,92 @@ import { useParams, Link } from "react-router-dom";
 import { api, apiBlob } from "@/lib/api";
 
 /* ------------------------------------------------------------
-   Backend Response Type
+   Types
 ------------------------------------------------------------- */
-type RawInstitutionCert = {
+type RawCertificate = {
   id: number | string;
-
   display_label?: string | null;
+  certificate_type?: string | null;
   issued_on?: string | null;
-
   applicant_full_name?: string | null;
   applicant_national_id_plain?: string | null;
-
+  applicant_wallet_address?: string | null;
   institution_name?: string | null;
   institution_id?: string | null;
-
   file_hash?: string | null;
   applicant_id_hash?: string | null;
-
   contract_address?: string | null;
   tx_hash?: string | null;
   block_number?: number | null;
-
   revoke_tx_hash?: string | null;
   revoke_block_number?: number | null;
   revoked_at?: string | null;
-
   created_at?: string | null;
   updated_at?: string | null;
 };
 
-/* ------------------------------------------------------------
-   Blockchain Verification Types
-------------------------------------------------------------- */
-type BlockchainStatus = {
+type BlockchainVerification = {
+  file_hash: string;
   exists: boolean;
-  revoked: boolean;
-  certificateType?: string;
-  issueDate?: number;
+  is_revoked: boolean;
+  issue_date: number;
+  certificate_type?: string;
 };
 
-/* ------------------------------------------------------------
-   Normalized Certificate Type
-------------------------------------------------------------- */
-type CertDetail = {
-  id: number | string;
-
-  title: string;
-  issueDate?: string | null;
-
-  issuerName?: string | null;
-  issuerId?: string | null;
-
-  applicantName?: string | null;
-  applicantNID?: string | null;
-
-  fileHash?: string | null;
-  applicantIdHash?: string | null;
-
-  contractAddress?: string | null;
-
-  txHash?: string | null;
-  blockNumber?: number | null;
-
-  revokeTxHash?: string | null;
-  revokeBlockNumber?: number | null;
-  revokedAt?: string | null;
-
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
+type VerificationStatus = "CHECKING" | "ACTIVE" | "REVOKED" | "NOT_FOUND";
 
 /* ------------------------------------------------------------
    Helpers
 ------------------------------------------------------------- */
-const ETHERSCAN_BASE = "https://etherscan.io";
+const EXPLORER_BASE = "https://sepolia.etherscan.io";
 
-const normalizeTx = (v?: string | null) => {
-  if (!v) return null;
-  const hex = v.startsWith("0x") ? v.slice(2) : v;
-  if (/^[a-fA-F0-9]{64}$/.test(hex)) return "0x" + hex.toLowerCase();
-  return null;
+const formatDate = (dateStr?: string | null) => {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 };
 
-const normHash = (h?: string | null) => {
-  if (!h) return "";
-  return (h.startsWith("0x") ? h : "0x" + h).toLowerCase();
-};
-
-const isBlockNum = (v?: number | null) =>
-  typeof v === "number" && Number.isInteger(v) && v >= 0;
-
-const txUrl = (tx: string) => `${ETHERSCAN_BASE}/tx/${tx}`;
-const blockUrl = (n: number) => `${ETHERSCAN_BASE}/block/${n}`;
-
 /* ------------------------------------------------------------
-   Normalizer
+   Components
 ------------------------------------------------------------- */
-function normalize(raw: RawInstitutionCert): CertDetail {
-  return {
-    id: raw.id,
-
-    title: raw.display_label || "Certificate",
-    issueDate: raw.issued_on || null,
-
-    issuerName: raw.institution_name || null,
-    issuerId: raw.institution_id || null,
-
-    applicantName: raw.applicant_full_name || null,
-    applicantNID: raw.applicant_national_id_plain || null,
-
-    fileHash: raw.file_hash || null,
-    applicantIdHash: raw.applicant_id_hash || null,
-
-    contractAddress: raw.contract_address || null,
-
-    txHash: raw.tx_hash || null,
-    blockNumber: raw.block_number ?? null,
-
-    revokeTxHash: raw.revoke_tx_hash || null,
-    revokeBlockNumber: raw.revoke_block_number ?? null,
-    revokedAt: raw.revoked_at || null,
-
-    createdAt: raw.created_at || null,
-    updatedAt: raw.updated_at || null,
-  };
-}
-
-/* ------------------------------------------------------------
-   Status Badge Component
-------------------------------------------------------------- */
-function StatusBadge({
-  status,
-}: {
-  status: "CHECKING" | "ACTIVE" | "REVOKED" | "INVALID";
-}) {
-  const styles = {
-    CHECKING: "bg-gray-400 text-white",
-    ACTIVE: "bg-emerald-500 text-white",
-    REVOKED: "bg-red-500 text-white",
-    INVALID: "bg-orange-500 text-white",
+function StatusBadge({ status }: { status: VerificationStatus }) {
+  const config = {
+    CHECKING: { bg: "bg-gray-100", text: "text-gray-600", icon: "⏳", label: "Verifying..." },
+    ACTIVE: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "✓", label: "Verified on Blockchain" },
+    REVOKED: { bg: "bg-red-100", text: "text-red-700", icon: "✕", label: "Revoked" },
+    NOT_FOUND: { bg: "bg-orange-100", text: "text-orange-700", icon: "⚠", label: "Not Found" },
   };
 
-  const labels = {
-    CHECKING: "Verifying...",
-    ACTIVE: "ACTIVE",
-    REVOKED: "REVOKED",
-    INVALID: "INVALID",
-  };
-
-  const icons = {
-    CHECKING: "⏳",
-    ACTIVE: "✓",
-    REVOKED: "✕",
-    INVALID: "⚠",
-  };
+  const { bg, text, icon, label } = config[status];
 
   return (
-    <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs md:text-sm font-semibold ${styles[status]}`}>
-      <span>{icons[status]}</span>
-      {labels[status]}
+    <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${bg} ${text}`}>
+      <span className="text-base">{icon}</span>
+      {label}
     </span>
   );
 }
 
-/* ------------------------------------------------------------
-   Error Banner
-------------------------------------------------------------- */
-function ErrorBanner({
-  message,
-  onDismiss,
-}: {
-  message: string;
-  onDismiss?: () => void;
-}) {
+function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 py-3 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500 sm:w-36 shrink-0">{label}</span>
+      <span className={`text-sm font-semibold text-gray-900 ${mono ? "font-mono" : ""}`}>
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
+function ErrorBanner({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
   return (
     <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-start justify-between">
       <span>{message}</span>
       {onDismiss && (
-        <button
-          onClick={onDismiss}
-          className="ml-4 text-red-700 hover:text-red-900"
-        >
-          ✕
-        </button>
+        <button onClick={onDismiss} className="ml-4 text-red-700 hover:text-red-900">✕</button>
       )}
     </div>
   );
@@ -197,145 +100,136 @@ function ErrorBanner({
 export default function InstitutionCertificateDetails() {
   const { id } = useParams<{ id: string }>();
 
-  const [data, setData] = useState<CertDetail | null>(null);
+  const [data, setData] = useState<RawCertificate | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [status, setStatus] = useState<VerificationStatus>("CHECKING");
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  const [status, setStatus] =
-    useState<"CHECKING" | "ACTIVE" | "REVOKED" | "INVALID">("CHECKING");
-
-  /* ---------------- Load Data ---------------- */
+  // Load certificate data
   useEffect(() => {
-    (async () => {
+    const loadData = async () => {
       try {
-        const raw = await api<RawInstitutionCert>(
-          `/certificates/institution/${encodeURIComponent(id!)}/`
-        );
+        const cert = await api<RawCertificate>(`/certificates/institution/${id}/`);
+        setData(cert);
 
-        const normalized = normalize(raw);
-        setData(normalized);
-
-        if (normalized.fileHash) verifyOnChain(normalized.fileHash);
+        if (cert.file_hash) {
+          verifyOnBlockchain(cert.file_hash);
+        } else {
+          setStatus("NOT_FOUND");
+        }
       } catch (e: any) {
-        setErr(e?.userMessage || "Failed to load certificate");
+        setError(e?.userMessage || "Failed to load certificate");
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    loadData();
   }, [id]);
 
-  /* ---------------- Blockchain Verification ---------------- */
-  const verifyOnChain = async (fileHash: string) => {
+  // Blockchain verification
+  const verifyOnBlockchain = async (fileHash: string) => {
     try {
-      const normalized = normHash(fileHash);
+      const resp = await api<{ results: BlockchainVerification[] }>(
+        "/certificates/institution/verify-batch/",
+        {
+          method: "POST",
+          body: JSON.stringify({ file_hashes: [fileHash] }),
+        }
+      );
 
-      const resp = await api<any>("/certificates/institution/verify-batch/", {
-        method: "POST",
-        body: JSON.stringify({ file_hashes: [normalized] }),
-      });
-
-      const items = resp?.results || resp;
-      const result = items?.[0];
+      const result = resp.results?.[0];
 
       if (!result || !result.exists) {
-        setStatus("INVALID");
-      } else if (result.is_revoked || result.revoked) {
+        setStatus("NOT_FOUND");
+      } else if (result.is_revoked) {
         setStatus("REVOKED");
       } else {
         setStatus("ACTIVE");
       }
-    } catch {
-      setStatus("INVALID");
+    } catch (e) {
+      console.error("Blockchain verification failed:", e);
+      setStatus("NOT_FOUND");
     }
   };
 
-  /* ---------------- PDF Actions ---------------- */
-  const openPdf = useCallback(async () => {
-    if (!data) return;
+  // ✅ FIXED: PDF handlers using apiBlob
+  const handleOpenPdf = useCallback(async () => {
+    if (!id) return;
     setPdfLoading(true);
-
+    setActionErr(null);
     try {
-      const blob = await apiBlob(`/certificates/institution/${data.id}/file/`);
+      const blob = await apiBlob(`/certificates/institution/${id}/file/`);
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-    } catch (e: any) {
-      setErr(e?.userMessage || "Failed to open PDF");
+    } catch {
+      setActionErr("Could not open PDF.");
     } finally {
       setPdfLoading(false);
     }
-  }, [data]);
+  }, [id]);
 
-  const downloadPdf = useCallback(async () => {
-    if (!data) return;
+  const handleDownloadPdf = useCallback(async () => {
+    if (!id) return;
     setPdfLoading(true);
-
+    setActionErr(null);
     try {
-      const blob = await apiBlob(`/certificates/institution/${data.id}/file/`);
+      const blob = await apiBlob(`/certificates/institution/${id}/file/`);
       const url = URL.createObjectURL(blob);
-
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Certificate_${data.id}.pdf`;
-      document.body.appendChild(a);
+      a.download = `certificate-${id}.pdf`;
       a.click();
-      document.body.removeChild(a);
-
       URL.revokeObjectURL(url);
-    } catch (e: any) {
-      setErr(e?.userMessage || "Failed to download PDF");
+    } catch {
+      setActionErr("Could not download PDF.");
     } finally {
       setPdfLoading(false);
     }
-  }, [data]);
+  }, [id]);
 
-  /* ---------------- Render ---------------- */
+  // Loading state
   if (loading) {
     return (
-      <section className="flex items-center justify-center min-h-screen bg-white">
-        <div className="text-gray-600">Loading…</div>
-      </section>
-    );
-  }
-
-  if (err && !data) {
-    return (
-      <section className="min-h-screen flex justify-center items-center px-4">
-        <div className="max-w-md w-full">
-          <ErrorBanner message={err} onDismiss={() => setErr(null)} />
-          <Link
-            to="/institution/certificates"
-            className="btn btn-outline mt-4 w-full text-center block"
-          >
-            ← Back
-          </Link>
+      <section className="min-h-screen bg-white py-8 px-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+            <div className="h-64 bg-gray-200 rounded-2xl"></div>
+          </div>
         </div>
       </section>
     );
   }
 
-  // ✅ Choose which transaction/block to show based on status
-  const txNorm =
-    status === "REVOKED"
-      ? normalizeTx(data?.revokeTxHash)
-      : normalizeTx(data?.txHash);
+  // Error state
+  if (error || !data) {
+    return (
+      <section className="min-h-screen bg-white py-8 px-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-8 text-center">
+            <div className="text-red-500 text-4xl mb-4">⚠</div>
+            <h2 className="text-xl font-bold text-red-700 mb-2">Error Loading Certificate</h2>
+            <p className="text-red-600 mb-4">{error || "Certificate not found"}</p>
+            <Link to="/institution/certificates" className="text-indigo-600 hover:underline">
+              ← Back to Certificates
+            </Link>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
-  const blockToShow =
-    status === "REVOKED" ? data?.revokeBlockNumber : data?.blockNumber;
-
-  const statusBarColor = {
-    CHECKING: "bg-gray-50 border-gray-200",
-    ACTIVE: "bg-emerald-50 border-emerald-100",
-    REVOKED: "bg-red-50 border-red-200",
-    INVALID: "bg-orange-50 border-orange-200",
-  }[status];
+  const isRevoked = status === "REVOKED" || !!data.revoked_at;
 
   return (
-    <section className="flex-grow min-h-screen bg-white py-8 px-4">
+    <section className="min-h-screen bg-white py-8 px-4">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
               Certificate{" "}
@@ -343,197 +237,151 @@ export default function InstitutionCertificateDetails() {
                 Details
               </span>
             </h1>
-            <p className="mt-1 text-gray-500">
-              View certificate and blockchain verification
-            </p>
+            <p className="mt-1 text-gray-500">View certificate and blockchain verification</p>
           </div>
-
-          <Link to="/institution/certificates" className="btn btn-outline">
-            ← Back
+          <Link
+            to="/institution/certificates"
+            className="inline-flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
           </Link>
         </div>
 
         {/* Errors */}
-        {err && <ErrorBanner message={err} onDismiss={() => setErr(null)} />}
+        {actionErr && <ErrorBanner message={actionErr} onDismiss={() => setActionErr(null)} />}
 
-        {/* Card */}
-        <div className="rounded-2xl bg-white shadow-sm border border-gray-200 overflow-hidden">
-          {/* Status bar */}
-          <div className={`px-6 py-3 border-b ${statusBarColor}`}>
-            <div className="flex items-center justify-between">
-              <span className="text-xs md:text-sm font-medium text-gray-600">
-                Blockchain Status
-              </span>
+        {/* Main Card */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* Status Header */}
+          <div className={`px-6 py-4 border-b ${
+            isRevoked ? "bg-red-50 border-red-200" : 
+            status === "ACTIVE" ? "bg-emerald-50 border-emerald-200" : 
+            "bg-gray-50 border-gray-200"
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  isRevoked ? "bg-red-100" : "bg-indigo-100"
+                }`}>
+                  <svg className={`w-6 h-6 ${isRevoked ? "text-red-600" : "text-indigo-600"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">{data.display_label || "Certificate"}</h2>
+                  {data.certificate_type && (
+                    <span className="text-sm text-gray-500">{data.certificate_type}</span>
+                  )}
+                </div>
+              </div>
               <StatusBadge status={status} />
             </div>
           </div>
 
           {/* Content */}
-          <div className="p-6 md:p-8">
-            {/* Title */}
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              {data?.title || "Untitled Certificate"}
-            </h2>
-
-            {/* Issuer + Applicant */}
-            <div className="space-y-3 mb-6 pb-6 border-b border-gray-200">
-              <div className="flex items-center gap-2 text-gray-600">
-                <span className="text-sm font-medium">Issued by:</span>
-                <span className="text-sm font-semibold text-gray-900">
-                  {data?.issuerName || "—"}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-gray-600">
-                <span className="text-sm font-medium">Applicant:</span>
-                <span className="text-sm font-semibold text-gray-900">
-                  {data?.applicantName || "—"}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-gray-600">
-                <span className="text-sm font-medium">National ID:</span>
-                <span className="text-sm font-semibold text-gray-900 font-mono">
-                  {data?.applicantNID || "—"}
-                </span>
-              </div>
+          <div className="p-6">
+            {/* Certificate Info */}
+            <div className="space-y-1">
+              <InfoRow label="Institution" value={data.institution_name || "—"} />
+              <InfoRow label="Applicant" value={data.applicant_full_name || "—"} />
+              <InfoRow label="National ID" value={data.applicant_national_id_plain || "—"} mono />
+              <InfoRow label="Issue Date" value={formatDate(data.issued_on)} />
+              {data.revoked_at && (
+                <InfoRow label="Revoked On" value={formatDate(data.revoked_at)} />
+              )}
             </div>
 
-            {/* Issue Date */}
-            <div className="mb-6 pb-6 border-b border-gray-200">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                Issue Date
-              </label>
-              <p className="text-sm md:text-base font-semibold text-gray-900">
-                {data?.issueDate
-                  ? new Date(data.issueDate).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })
-                  : "—"}
-              </p>
-            </div>
-
-            {/* ✅ REVOKED: Show Revocation Info WITHOUT Date */}
-            {status === "REVOKED" && (
-              <div className="space-y-4">
-                {/* Revocation Transaction */}
-                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">
-                    Revocation Transaction
-                  </label>
-
-                  {txNorm ? (
-                    <a
-                      href={txUrl(txNorm)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs md:text-sm text-red-600 break-all underline hover:text-red-800"
-                    >
-                      {txNorm}
-                    </a>
-                  ) : (
-                    <span className="font-mono text-xs text-gray-500">—</span>
-                  )}
-                </div>
-
-                {/* Revocation Block */}
-                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">
-                    Revocation Block
-                  </label>
-
-                  {isBlockNum(blockToShow) ? (
-                    <a
-                      href={blockUrl(blockToShow!)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs md:text-sm text-red-600 underline hover:text-red-800"
-                    >
-                      {blockToShow}
-                    </a>
-                  ) : (
-                    <span className="text-sm font-semibold text-gray-500">
-                      —
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ✅ NOT REVOKED: Show Issuance Info */}
-            {status !== "REVOKED" && (
-              <div className="space-y-4">
-                {/* Issuance Transaction */}
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">
+            {/* Blockchain Transaction */}
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              {/* Issuance Transaction */}
+              {data.tx_hash && (
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 mb-4">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     Issuance Transaction
                   </label>
-
-                  {txNorm ? (
-                    <a
-                      href={txUrl(txNorm)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs md:text-sm text-indigo-600 break-all underline hover:text-indigo-800"
-                    >
-                      {txNorm}
-                    </a>
-                  ) : (
-                    <span className="font-mono text-xs text-gray-500">—</span>
-                  )}
+                  <a
+                    href={`${EXPLORER_BASE}/tx/${data.tx_hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-sm text-indigo-600 hover:text-indigo-800 underline break-all"
+                  >
+                    {data.tx_hash}
+                  </a>
                 </div>
+              )}
 
-                {/* Issuance Block */}
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">
+              {/* Issuance Block */}
+              {data.block_number && (
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     Issuance Block
                   </label>
-
-                  {isBlockNum(blockToShow) ? (
-                    <a
-                      href={blockUrl(blockToShow!)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs md:text-sm text-indigo-600 underline hover:text-indigo-800"
-                    >
-                      {blockToShow}
-                    </a>
-                  ) : (
-                    <span className="text-sm font-semibold text-gray-500">
-                      —
-                    </span>
-                  )}
+                  <a
+                    href={`${EXPLORER_BASE}/block/${data.block_number}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-sm text-indigo-600 hover:text-indigo-800 underline"
+                  >
+                    #{data.block_number.toLocaleString()}
+                  </a>
                 </div>
-              </div>
-            )}
+              )}
+
+              {/* Revocation Info (if revoked) */}
+              {isRevoked && data.revoke_tx_hash && (
+                <div className="mt-4 bg-red-50 rounded-xl p-4 border border-red-200">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Revocation Transaction
+                  </label>
+                  <a
+                    href={`${EXPLORER_BASE}/tx/${data.revoke_tx_hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-mono text-sm text-red-600 hover:text-red-800 underline break-all"
+                  >
+                    {data.revoke_tx_hash}
+                  </a>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Buttons */}
-          <div className="bg-gray-50 px-5 py-4 border-t border-gray-200 flex gap-3">
-            <button
-              onClick={openPdf}
-              disabled={pdfLoading}
-              className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white font-semibold py-2.5 px-6 rounded-lg transition-colors duration-200"
-            >
-              {pdfLoading ? "Opening…" : "Open PDF"}
-            </button>
+          {/* Actions Footer */}
+          <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleOpenPdf}
+                disabled={pdfLoading || isRevoked}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                {pdfLoading ? "Opening..." : "View PDF"}
+              </button>
 
-            <button
-              onClick={downloadPdf}
-              disabled={pdfLoading}
-              className="flex-1 sm:flex-none bg-gray-700 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-semibold py-2.5 px-6 rounded-lg transition-colors duration-200"
-            >
-              {pdfLoading ? "Downloading…" : "Download PDF"}
-            </button>
+              <button
+                onClick={handleDownloadPdf}
+                disabled={pdfLoading || isRevoked}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                {pdfLoading ? "Downloading..." : "Download PDF"}
+              </button>
 
-            <Link
-              to="/institution/certificates"
-              className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors duration-200 text-center"
-            >
-              Cancel
-            </Link>
+              <Link
+                to="/institution/certificates"
+                className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancel
+              </Link>
+            </div>
           </div>
         </div>
       </div>
