@@ -20,7 +20,14 @@ from .serializers import (
     AccessShareSerializer,
 )
 from api.certificates.models import Certificate
-from helper.blockchain_service import create_blockchain_service
+from helpers.blockchain_service import create_blockchain_service
+
+# ✅ Import events for email notifications
+from .events import (
+    access_request_created,
+    access_request_approved,
+    access_request_rejected,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,7 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
     - POST /api/access/my/requests/{id}/approve/ - Approve request with blockchain sync
     - POST /api/access/my/requests/{id}/reject/ - Reject request
     - GET /api/access/my/requests/{id}/candidate_certificates/ - List shareable certificates
+    - GET /api/access/my/requests/{id}/shared_certificates/ - List already shared certificates
     - POST /api/access/my/requests/{id}/revoke_access/ - Revoke shared certificates
     """
     
@@ -51,7 +59,7 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         
         try:
-            applicant = user.applicant_profile
+            applicant = user.applicant
         except AttributeError:
             return AccessRequest.objects.none()
         
@@ -77,10 +85,12 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         
         Process:
         1. Validate request is PENDING
-        2. Approve request in database
-        3. Create AccessShare records
-        4. Sync to blockchain (signed by admin wallet)
-        5. Return success with blockchain sync status
+        2. ✅ VERIFY certificates exist on blockchain
+        3. Approve request in database
+        4. Create AccessShare records
+        5. Sync to blockchain (signed by admin wallet)
+        6. ✅ Send email notification
+        7. Return success with blockchain sync status
         """
         req_obj = self.get_object()
 
@@ -102,9 +112,42 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         certificate_ids = serializer.validated_data["certificate_ids"]
         expiry_days = serializer.validated_data.get("expiry_days", 365)
 
+        # ✅ VERIFY CERTIFICATES EXIST ON BLOCKCHAIN BEFORE SHARING
+        certificates = Certificate.objects.filter(
+            id__in=certificate_ids,
+            applicant=req_obj.applicant
+        ).select_related('institution')
+        
+        blockchain_verified_certs = []
+        skipped_certs = []
+        
+        for cert in certificates:
+            # Check if certificate exists on blockchain
+            if self._verify_certificate_on_blockchain(cert):
+                blockchain_verified_certs.append(cert)
+            else:
+                skipped_certs.append({
+                    "id": cert.id,
+                    "title": cert.display_label,
+                    "reason": "Certificate not found on blockchain"
+                })
+                logger.warning(f"Skipping cert {cert.id}: not on blockchain")
+        
+        if not blockchain_verified_certs:
+            return Response(
+                {
+                    "error": "None of the selected certificates exist on blockchain",
+                    "skipped": skipped_certs
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Approve the request
         req_obj.approve()
         req_obj.save()
+
+        # ✅ Emit event to send approval email
+        access_request_approved(req_obj)
 
         shares_created = 0
         blockchain_synced = 0
@@ -113,22 +156,17 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         # Get employer ID hash for blockchain
         employer_id_hash = _get_employer_id_hash(req_obj.employer)
         
-        # Create shares and sync to blockchain
-        for cert_id in certificate_ids:
+        # Calculate expiry date
+        expiry_date_dt = None
+        expiry_timestamp = 0
+        
+        if expiry_days > 0:
+            expiry_date_dt = timezone.now() + timedelta(days=expiry_days)
+            expiry_timestamp = int(expiry_date_dt.timestamp())
+        
+        # Create shares and sync to blockchain (only for blockchain-verified certs)
+        for cert in blockchain_verified_certs:
             try:
-                cert = Certificate.objects.select_related('institution').get(
-                    id=cert_id, 
-                    applicant=req_obj.applicant
-                )
-                
-                # Calculate expiry date
-                expiry_date_dt = None
-                expiry_timestamp = 0
-                
-                if expiry_days > 0:
-                    expiry_date_dt = timezone.now() + timedelta(days=expiry_days)
-                    expiry_timestamp = int(expiry_date_dt.timestamp())
-                
                 # Create AccessShare in database
                 share = AccessShare.objects.create(
                     request=req_obj,
@@ -141,7 +179,7 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 # Sync to blockchain using admin wallet
                 try:
                     blockchain_service = create_blockchain_service(
-                        contract_address=cert.institution.contract_address,  # ✅ FIXED
+                        contract_address=cert.institution.contract_address,
                         use_admin_wallet=True  # Use admin wallet to sign
                     )
                     
@@ -157,40 +195,31 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
                         share.save()
                         blockchain_synced += 1
                         logger.info(
-                            f"✓ Blockchain synced for cert {cert_id}: {result.get('tx_hash')}"
+                            f"✓ Blockchain synced for cert {cert.id}: {result.get('tx_hash')}"
                         )
                     else:
                         blockchain_errors.append({
-                            "certificate_id": cert_id,
+                            "certificate_id": cert.id,
                             "certificate_name": cert.display_label,
                             "error": result.get("error", "Unknown error")
                         })
                         logger.error(
-                            f"✗ Blockchain sync failed for cert {cert_id}: {result.get('error')}"
+                            f"✗ Blockchain sync failed for cert {cert.id}: {result.get('error')}"
                         )
                         
                 except Exception as e:
                     blockchain_errors.append({
-                        "certificate_id": cert_id,
+                        "certificate_id": cert.id,
                         "certificate_name": cert.display_label,
                         "error": str(e)
                     })
                     logger.error(
-                        f"✗ Exception during blockchain sync for cert {cert_id}: {e}",
+                        f"✗ Exception during blockchain sync for cert {cert.id}: {e}",
                         exc_info=True
                     )
                 
-            except Certificate.DoesNotExist:
-                logger.warning(f"Certificate {cert_id} not found")
             except Exception as e:
-                logger.error(f"Error creating share for cert {cert_id}: {e}", exc_info=True)
-
-        # Send email notification (optional)
-        try:
-            from .utils import send_status_update_email
-            send_status_update_email(req_obj)
-        except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+                logger.error(f"Error creating share for cert {cert.id}: {e}", exc_info=True)
 
         # Build response
         response_data = {
@@ -206,8 +235,39 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
                     f"Only {blockchain_synced} of {shares_created} certificates synced to blockchain. "
                     f"{len(blockchain_errors)} failed."
                 )
+        
+        if skipped_certs:
+            response_data["skipped_certificates"] = skipped_certs
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+    def _verify_certificate_on_blockchain(self, certificate):
+        """
+        Check if certificate exists on blockchain.
+        Returns True only if certificate is registered on blockchain.
+        """
+        try:
+            contract_address = certificate.institution.contract_address
+            if not contract_address:
+                logger.warning(f"No contract address for institution {certificate.institution.id}")
+                return False
+
+            blockchain_service = create_blockchain_service(
+                contract_address=contract_address,
+                use_admin_wallet=False
+            )
+
+            result = blockchain_service.verify_certificate(certificate.file_hash)
+            
+            # Certificate must exist and not be revoked
+            if result.get("exists") and not result.get("is_revoked"):
+                return True
+            
+            return False
+
+        except Exception as e:
+            logger.error(f"Blockchain verification failed for cert {certificate.id}: {e}")
+            return False
 
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def reject(self, request, pk=None):
@@ -227,12 +287,8 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         req_obj.reject()
         req_obj.save()
 
-        # Send email notification
-        try:
-            from .utils import send_status_update_email
-            send_status_update_email(req_obj)
-        except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+        # ✅ Emit event to send rejection email
+        access_request_rejected(req_obj)
 
         return Response(
             {"message": "Request rejected successfully"},
@@ -245,6 +301,8 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         Get list of certificates that can be shared for this request.
         
         GET /api/access/my/requests/{id}/candidate_certificates/
+        
+        ✅ FIXED: Only shows blockchain-verified certificates
         """
         req_obj = self.get_object()
         
@@ -253,20 +311,75 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
             revoked_at__isnull=True
         ).select_related('institution').order_by('-issued_on')
         
+        # ✅ Only include blockchain-verified certificates
         cert_data = []
         for cert in certificates:
-            cert_data.append({
-                "id": cert.id,
-                "display_label": cert.display_label,
-                "institution_name": cert.institution.institution_name,
-                "issued_on": cert.issued_on,
-                "file_hash": cert.file_hash,
-                "status": "REVOKED" if cert.revoked_at else "ACTIVE",
-            })
+            # Verify certificate exists on blockchain
+            if self._verify_certificate_on_blockchain(cert):
+                cert_data.append({
+                    "id": cert.id,
+                    "display_label": cert.display_label,
+                    "institution_name": cert.institution.institution_name,
+                    "issued_on": cert.issued_on,
+                    "file_hash": cert.file_hash,
+                    "status": "ACTIVE",
+                    "blockchain_verified": True,
+                })
+            else:
+                logger.warning(f"Cert {cert.id} not on blockchain, hiding from selection")
         
         return Response({
             "certificates": cert_data,
             "total": len(cert_data)
+        })
+
+    @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
+    def shared_certificates(self, request, pk=None):
+        """
+        Get list of certificates already shared for this request.
+        
+        GET /api/access/my/requests/{id}/shared_certificates/
+        
+        Returns certificates that applicant has shared with employer for this request.
+        Used by the revoke modal to show which certificates can be revoked.
+        """
+        req_obj = self.get_object()
+        
+        if req_obj.status != AccessRequest.Status.APPROVED:
+            return Response(
+                {"error": "Request is not approved"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get all shares for this request (including revoked ones for history)
+        shares = AccessShare.objects.filter(
+            request=req_obj
+        ).select_related(
+            'certificate__institution'
+        ).order_by('-created_at')
+        
+        certificates = []
+        for share in shares:
+            cert = share.certificate
+            certificates.append({
+                "id": share.id,
+                "certificate_id": cert.id,
+                "file_hash": cert.file_hash,
+                "title": cert.display_label,
+                "issued_on": cert.issued_on,
+                "issuer": cert.institution.institution_name,
+                "created_at": share.created_at,
+                "expiry_date": share.expiry_date,
+                "is_expired": share.is_expired(),
+                "is_active": share.is_active(),
+                "blockchain_synced": share.blockchain_synced,
+                "blockchain_tx_hash": share.blockchain_tx_hash,
+                "revoked_at": share.revoked_at,
+            })
+        
+        return Response({
+            "certificates": certificates,
+            "total": len(certificates)
         })
 
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
@@ -276,6 +389,8 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         
         POST /api/access/my/requests/{id}/revoke_access/
         Body: {"certificate_ids": [1, 2]}
+        
+        ✅ FIXED: Only allows revoking blockchain-synced certificates
         """
         req_obj = self.get_object()
         
@@ -306,6 +421,11 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
                     revoked_at__isnull=True
                 )
                 
+                # ✅ CHECK: Must be blockchain synced to revoke
+                if not share.blockchain_synced:
+                    logger.warning(f"Cannot revoke cert {cert_id}: not synced to blockchain")
+                    continue
+                
                 # Revoke in database
                 share.revoked_at = timezone.now()
                 share.save()
@@ -314,7 +434,7 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
                 # Revoke on blockchain
                 try:
                     blockchain_service = create_blockchain_service(
-                        contract_address=share.certificate.institution.contract_address,  # ✅ FIXED
+                        contract_address=share.certificate.institution.contract_address,
                         use_admin_wallet=True
                     )
                     
@@ -361,7 +481,7 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         
         try:
-            employer = user.employer_profile
+            employer = user.employer
         except AttributeError:
             return AccessRequest.objects.none()
         
@@ -380,10 +500,13 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
         return AccessRequestSerializer
 
     def create(self, request, *args, **kwargs):
-        """Create new access request."""
+        """Create new access request and send email notification."""
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         instance = serializer.save()
+        
+        # ✅ Emit event to send request email to applicant
+        access_request_created(instance)
         
         output = AccessRequestSerializer(instance)
         return Response(output.data, status=status.HTTP_201_CREATED)
@@ -395,11 +518,11 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
         
         GET /api/access/employer/requests/{id}/shared/
         
-        CRITICAL: Only returns certificates verified on blockchain.
-        Certificates without blockchain approval are hidden.
+        ✅ UPDATED: Now shows revoked certificates (grayed out in frontend)
+        Employers can see what was revoked with warning banner.
         """
         req_obj = self.get_object()
-        employer = request.user.employer_profile
+        employer = request.user.employer
         
         if req_obj.status != AccessRequest.Status.APPROVED:
             return Response(
@@ -407,9 +530,11 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get shares from database
+        # ✅ UPDATED: Include revoked certificates (removed revoked_at__isnull=True filter)
         db_shares = AccessShare.objects.filter(
-            request=req_obj
+            request=req_obj,
+            blockchain_synced=True  # Must be synced
+            # ✅ REMOVED: revoked_at__isnull=True - now shows revoked certs too
         ).select_related(
             'certificate__institution'
         ).order_by('-created_at')
@@ -417,14 +542,35 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
         employer_id_hash = _get_employer_id_hash(employer)
         verified_certificates = []
         
-        # CHECK EACH CERTIFICATE ON BLOCKCHAIN BEFORE SHOWING
+        # Check each certificate
         for share in db_shares:
             cert = share.certificate
             
-            # BLOCKCHAIN VERIFICATION
+            # For revoked certificates, skip blockchain check (they're already revoked)
+            if share.revoked_at:
+                verified_certificates.append({
+                    "id": share.id,
+                    "certificate_id": cert.id,
+                    "file_hash": cert.file_hash,
+                    "title": cert.display_label,
+                    "issued_on": cert.issued_on,
+                    "issuer": cert.institution.institution_name,
+                    "created_at": share.created_at,
+                    "expiry_date": share.expiry_date,
+                    "is_expired": share.is_expired(),
+                    "is_active": False,  # Revoked = not active
+                    "blockchain_synced": share.blockchain_synced,
+                    "blockchain_verified": True,
+                    "blockchain_tx_hash": share.blockchain_tx_hash,
+                    "blockchain_expiry": 0,
+                    "revoked_at": share.revoked_at,
+                })
+                continue
+            
+            # For active certificates, do blockchain verification
             blockchain_result = self._verify_on_blockchain(cert, employer_id_hash)
             
-            # SKIP if blockchain says NO ACCESS
+            # SKIP if blockchain says NO ACCESS (shouldn't happen but safety check)
             if not blockchain_result["has_access"]:
                 logger.warning(
                     f"Blockchain denied access for cert {cert.id}. "
@@ -440,8 +586,9 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
                 is_expired = timezone.now().timestamp() > blockchain_expiry
             
             is_expired = is_expired or share.is_expired()
-            is_revoked = share.revoked_at is not None
-            is_active = blockchain_result["has_access"] and not is_expired and not is_revoked
+            
+            # ✅ Use model's is_active() method
+            is_active = share.is_active() and blockchain_result["has_access"] and not is_expired
             
             verified_certificates.append({
                 "id": share.id,
@@ -474,7 +621,7 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
         """Verify employer access on blockchain."""
         try:
             blockchain_service = create_blockchain_service(
-                contract_address=certificate.institution.contract_address,  # ✅ FIXED
+                contract_address=certificate.institution.contract_address,
                 use_admin_wallet=False  # Read-only
             )
             
@@ -510,7 +657,7 @@ class EmployerCertificateViewSet(viewsets.ViewSet):
         
         Get certificate details after blockchain verification.
         """
-        employer = request.user.employer_profile
+        employer = request.user.employer
         
         try:
             share = AccessShare.objects.select_related(
@@ -588,9 +735,9 @@ class EmployerCertificateViewSet(viewsets.ViewSet):
         """
         GET /api/access/employer/certificates/{share_id}/file/
         
-        Download PDF after blockchain verification.
+        ✅ FIXED: Redirect to Storacha gateway for direct download.
         """
-        employer = request.user.employer_profile
+        employer = request.user.employer
         
         try:
             share = AccessShare.objects.select_related(
@@ -638,25 +785,22 @@ class EmployerCertificateViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Serve PDF
-        try:
-            file_path = cert.file.path
-            with open(file_path, 'rb') as f:
-                response = HttpResponse(f.read(), content_type='application/pdf')
-                response['Content-Disposition'] = f'attachment; filename="certificate-{cert.id}.pdf"'
-                return response
-        except Exception as e:
-            logger.error(f"Error serving file: {e}")
+        # ✅ REDIRECT TO STORACHA
+        if not cert.storacha_cid:
             return Response(
-                {"error": "Failed to retrieve file"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Certificate file not available"},
+                status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Redirect browser directly to Storacha gateway
+        gateway_url = f"https://{cert.storacha_cid}.ipfs.w3s.link"
+        return redirect(gateway_url)
     
     def _verify_on_blockchain(self, certificate, employer_id_hash: str) -> dict:
         """Verify employer access on blockchain."""
         try:
             blockchain_service = create_blockchain_service(
-                contract_address=certificate.institution.contract_address,  # ✅ FIXED
+                contract_address=certificate.institution.contract_address,
                 use_admin_wallet=False
             )
             

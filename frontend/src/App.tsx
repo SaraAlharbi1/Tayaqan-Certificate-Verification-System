@@ -160,8 +160,9 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        {/* ✅ FIXED: Match the link in AccessRequests.tsx */}
         <Route
-          path="/employer/applicants/:applicantId/shared"
+          path="/employer/access/:requestId/certificates"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["employer"]}>
@@ -170,8 +171,9 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        {/* ✅ FIXED: Use :id to match CertificateDetails component */}
         <Route
-          path="/employer/certificates/:certificateId"
+          path="/employer/certificates/:id"
           element={
             <ProtectedRoute>
               <RoleRoute allow={["employer"]}>

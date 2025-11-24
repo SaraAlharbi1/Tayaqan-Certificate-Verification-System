@@ -17,7 +17,7 @@ class PrepareIssueSerializer(serializers.Serializer):
     national_id = serializers.CharField(max_length=20)
     full_name = serializers.CharField(max_length=255)
     title = serializers.CharField(max_length=500)
-    certificate_type = serializers.CharField(max_length=255)  # ← ADD THIS
+    certificate_type = serializers.CharField(max_length=255)
     issued_on = serializers.DateField(required=False, allow_null=True)
     pdf_file = serializers.FileField()
 
@@ -30,10 +30,12 @@ class ConfirmIssueSerializer(serializers.Serializer):
     """
     Step 2: Confirm blockchain transaction.
     Saves certificate to database with blockchain proof.
+    
+    ✅ UPDATED: Now validates that file_hash is unique (no duplicates)
     """
     national_id = serializers.CharField(max_length=20)
     title = serializers.CharField(max_length=500)
-    certificate_type = serializers.CharField(max_length=255)  # ← ADD THIS
+    certificate_type = serializers.CharField(max_length=255)
     issued_on = serializers.DateField(required=False, allow_null=True)
     cid = serializers.CharField(max_length=255)
     file_hash = serializers.CharField(max_length=66)
@@ -41,6 +43,40 @@ class ConfirmIssueSerializer(serializers.Serializer):
     contract_address = serializers.CharField(max_length=42)
     tx_hash = serializers.CharField(max_length=66)
     block_number = serializers.IntegerField(required=False, allow_null=True)
+
+    # ✅ ADDED: Validate that file_hash is unique
+    def validate_file_hash(self, value):
+        """
+        Check if certificate with this file hash already exists.
+        Prevents duplicate certificates from being issued.
+        """
+        if not value:
+            return value
+        
+        existing = Certificate.objects.filter(file_hash=value).first()
+        if existing:
+            raise serializers.ValidationError(
+                f"A certificate with this file already exists (ID: {existing.id}). "
+                f"Duplicate certificates are not allowed."
+            )
+        return value
+
+    # ✅ ADDED: Validate that tx_hash is unique
+    def validate_tx_hash(self, value):
+        """
+        Check if certificate with this transaction hash already exists.
+        Prevents duplicate blockchain transactions from being recorded.
+        """
+        if not value:
+            return value
+        
+        existing = Certificate.objects.filter(tx_hash=value).first()
+        if existing:
+            raise serializers.ValidationError(
+                f"A certificate with this transaction already exists (ID: {existing.id}). "
+                f"This transaction has already been recorded."
+            )
+        return value
 
 
 # ================================
@@ -104,9 +140,9 @@ class CertificateDetailSerializer(serializers.ModelSerializer):
             "contract_address",
             "tx_hash",
             "block_number",
-            "revoke_tx_hash",       # ✅ added
-            "revoke_block_number",  # ✅ added
-            "revoked_at",           # ✅ added
+            "revoke_tx_hash",
+            "revoke_block_number",
+            "revoked_at",
             "created_at",
             "updated_at",
         )
@@ -163,9 +199,9 @@ class MyCertificateDetailSerializer(serializers.ModelSerializer):
             "contract_address",
             "tx_hash",
             "block_number",
-            "revoke_tx_hash",       # ✅ added
-            "revoke_block_number",  # ✅ added
-            "revoked_at",           # ✅ added
+            "revoke_tx_hash",
+            "revoke_block_number",
+            "revoked_at",
             "created_at",
         )
     

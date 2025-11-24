@@ -1,4 +1,3 @@
-# backend/core/settings.py
 """
 Django settings for backend project (dev).
 """
@@ -194,7 +193,6 @@ CORS_ALLOW_METHODS = [
 ]
 
 
-
 # ------------------------------------------------------------------ Email
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
@@ -203,3 +201,11 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+
+
+# ------------------------------------------------------------------ Blockchain
+WEB3_RPC_URL = os.getenv("WEB3_RPC_URL", "http://127.0.0.1:8545")
+BLOCKCHAIN_RPC_URL = WEB3_RPC_URL
+CHAIN_ID = os.getenv("CHAIN_ID", "31337")
+ADMIN_PRIVATE_KEY = os.getenv("ADMIN_PRIVATE_KEY", "")
+INSTITUTION_REGISTRY_ADDRESS = os.getenv("INSTITUTION_REGISTRY_ADDRESS", "")

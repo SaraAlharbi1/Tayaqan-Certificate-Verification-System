@@ -100,6 +100,24 @@ const ApplicantSharedCertificates = () => {
           </Link>
         </div>
 
+        {/* ✅ NEW: Warning for revoked certificates */}
+        {data && data.certificates.some(cert => cert.revoked_at) && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4">
+            <div className="flex gap-3">
+              <span className="text-red-600 text-xl">⚠️</span>
+              <div>
+                <p className="text-sm font-medium text-red-800">
+                  Some certificates have been revoked
+                </p>
+                <p className="text-sm text-red-700 mt-1">
+                  The applicant has revoked access to some certificates. 
+                  You can no longer view or download these certificates.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!data?.certificates || data.certificates.length === 0 ? (
           <div className="auth-card">
             <div className="text-center py-16 text-gray-500">
@@ -129,8 +147,13 @@ const ApplicantSharedCertificates = () => {
                   <tbody className="divide-y divide-gray-100">
                     {data.certificates.map((cert) => {
                       const expiryStatus = getExpiryStatus(cert);
+                      const isRevoked = !!cert.revoked_at;
+                      
                       return (
-                        <tr key={cert.id} className="hover:bg-gray-50/60">
+                        <tr 
+                          key={cert.id} 
+                          className={`hover:bg-gray-50/60 ${isRevoked ? 'opacity-50' : ''}`}
+                        >
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900">{cert.title}</p>
                             <p className="text-xs text-gray-500">{cert.issuer}</p>
@@ -161,7 +184,7 @@ const ApplicantSharedCertificates = () => {
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {cert.revoked_at ? (
+                            {isRevoked ? (
                               <span className="px-3 py-1.5 text-xs rounded-full bg-red-50 text-red-700">
                                 Revoked
                               </span>
@@ -176,13 +199,17 @@ const ApplicantSharedCertificates = () => {
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {cert.is_active && !cert.is_expired && (
+                            {!isRevoked && cert.is_active && !cert.is_expired ? (
                               <Link
                                 to={`/employer/certificates/${cert.id}`}
                                 className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700"
                               >
                                 View
                               </Link>
+                            ) : (
+                              <span className="text-gray-400 text-xs italic">
+                                {isRevoked ? 'Revoked' : 'Unavailable'}
+                              </span>
                             )}
                           </td>
                         </tr>

@@ -15,14 +15,13 @@ class AccountsConfig(AppConfig):
     name = "api.accounts"
     label = "accounts"
 
-    def ready(self):
-        # Local imports to avoid circular dependencies at import time.
-        from .events import register
+    def ready(self):    
+        from . import events
         from .handlers import (
             send_employer_approved_email,
             send_institution_approved_email,
         )
 
-        # Observer pattern: register handlers for domain events.
-        register("employer_approved", send_employer_approved_email)
-        register("institution_approved", send_institution_approved_email)
+        # Register email handlers
+        events.register("employer_approved", send_employer_approved_email)
+        events.register("institution_approved", send_institution_approved_email)

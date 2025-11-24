@@ -93,11 +93,13 @@ class Certificate(models.Model):
     # Blockchain Data (Issuance)
     # ============================================================
     
+    # ✅ UPDATED: Added unique=True to prevent duplicate certificates
     file_hash = models.CharField(
         max_length=66,
         blank=True,
         db_index=True,
-        help_text="SHA256 hash of PDF file",
+        unique=True,  # ← ADDED: No duplicate file hashes allowed
+        help_text="SHA256 hash of PDF file - must be unique globally",
     )
     
     applicant_id_hash = models.CharField(
@@ -170,9 +172,16 @@ class Certificate(models.Model):
         indexes = [
             models.Index(fields=["applicant", "institution"]),
             models.Index(fields=["applicant_id_hash"]),
-            models.Index(fields=["file_hash"]),
             models.Index(fields=["contract_address"]),
             models.Index(fields=["national_id_plain"]),
+        ]
+        # ✅ ADDED: Explicit constraint for duplicate prevention
+        constraints = [
+            models.UniqueConstraint(
+                fields=['file_hash'],
+                name='unique_certificate_file_hash',
+                condition=models.Q(file_hash__isnull=False) & ~models.Q(file_hash=''),
+            )
         ]
         verbose_name = "Certificate"
         verbose_name_plural = "Certificates"

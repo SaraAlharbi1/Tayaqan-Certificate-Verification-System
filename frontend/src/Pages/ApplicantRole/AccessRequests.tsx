@@ -21,6 +21,22 @@ interface Certificate {
   status?: string;
 }
 
+// ✅ NEW: SharedCertificate interface
+interface SharedCertificate {
+  id: number;
+  certificate_id: number;
+  file_hash: string;
+  title: string;
+  issued_on: string;
+  issuer: string;
+  created_at: string;
+  expiry_date: string | null;
+  is_expired: boolean;
+  is_active: boolean;
+  blockchain_synced: boolean;
+  revoked_at: string | null;
+}
+
 interface ApproveData {
   certificate_ids: number[];
   expiry_days: number;
@@ -39,6 +55,10 @@ const AccessRequests = () => {
   const [expiryDays, setExpiryDays] = useState<number>(365);
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  
+  // ✅ NEW: Revoke state
+  const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
+  const [selectedRevokeCertificates, setSelectedRevokeCertificates] = useState<number[]>([]);
 
   // Fetch access requests
   const { data: requests, isLoading: requestsLoading } = useQuery({
@@ -59,7 +79,20 @@ const AccessRequests = () => {
       );
       return response.certificates || [];
     },
-    enabled: !!selectedRequest,
+    enabled: !!selectedRequest && approveDialogOpen,
+  });
+
+  // ✅ NEW: Fetch shared certificates for revoke
+  const { data: sharedCertificates, isLoading: sharedCertificatesLoading } = useQuery({
+    queryKey: ['shared-certificates', selectedRequest?.id],
+    queryFn: async () => {
+      if (!selectedRequest) return [];
+      const response = await api<{ certificates: SharedCertificate[] }>(
+        `/access/my/requests/${selectedRequest.id}/shared_certificates/`
+      );
+      return response.certificates || [];
+    },
+    enabled: !!selectedRequest && revokeDialogOpen,
   });
 
   // Approve mutation
@@ -121,6 +154,30 @@ const AccessRequests = () => {
     },
   });
 
+  // ✅ NEW: Revoke mutation
+  const revokeMutation = useMutation({
+    mutationFn: async (data: { requestId: number; certificate_ids: number[] }) => {
+      const response = await api<{ message: string; revoked_count: number }>(
+        `/access/my/requests/${data.requestId}/revoke_access/`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ certificate_ids: data.certificate_ids }),
+        }
+      );
+      return response;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['applicant-access-requests'] });
+      setRevokeDialogOpen(false);
+      setSelectedRequest(null);
+      setSelectedRevokeCertificates([]);
+      alert(`✓ ${data.message}\n\n${data.revoked_count} certificate(s) revoked successfully.`);
+    },
+    onError: (error: any) => {
+      alert(`Failed to revoke access: ${error.userMessage || error.message}`);
+    },
+  });
+
   const handleApproveClick = (request: AccessRequest) => {
     setSelectedRequest(request);
     setSelectedCertificates([]);
@@ -132,8 +189,22 @@ const AccessRequests = () => {
     setRejectDialogOpen(true);
   };
 
+  // ✅ NEW: Handle revoke click
+  const handleRevokeClick = (request: AccessRequest) => {
+    setSelectedRequest(request);
+    setSelectedRevokeCertificates([]);
+    setRevokeDialogOpen(true);
+  };
+
   const handleCertificateToggle = (certId: number) => {
     setSelectedCertificates((prev) =>
+      prev.includes(certId) ? prev.filter((id) => id !== certId) : [...prev, certId]
+    );
+  };
+
+  // ✅ NEW: Handle revoke certificate toggle
+  const handleRevokeCertificateToggle = (certId: number) => {
+    setSelectedRevokeCertificates((prev) =>
       prev.includes(certId) ? prev.filter((id) => id !== certId) : [...prev, certId]
     );
   };
@@ -156,6 +227,19 @@ const AccessRequests = () => {
   const handleRejectConfirm = () => {
     if (!selectedRequest) return;
     rejectMutation.mutate(selectedRequest.id);
+  };
+
+  // ✅ NEW: Handle revoke confirm
+  const handleRevokeConfirm = () => {
+    if (!selectedRequest || selectedRevokeCertificates.length === 0) {
+      alert('Please select at least one certificate to revoke');
+      return;
+    }
+
+    revokeMutation.mutate({
+      requestId: selectedRequest.id,
+      certificate_ids: selectedRevokeCertificates,
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -258,6 +342,15 @@ const AccessRequests = () => {
                                 Reject
                               </button>
                             </div>
+                          )}
+                          {/* ✅ NEW: Revoke Access button for APPROVED requests */}
+                          {request.status === 'APPROVED' && (
+                            <button
+                              onClick={() => handleRevokeClick(request)}
+                              className="px-3 py-1.5 bg-orange-600 text-white text-xs rounded-md hover:bg-orange-700"
+                            >
+                              Revoke Access
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -404,6 +497,94 @@ const AccessRequests = () => {
                   className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700"
                 >
                   {rejectMutation.isPending ? 'Rejecting…' : 'Reject'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ✅ NEW: Revoke Dialog */}
+        {revokeDialogOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Revoke Access
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  From {selectedRequest?.employer_name || selectedRequest?.company_name}
+                </p>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Warning */}
+                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                  <p className="text-sm text-orange-800 font-medium">
+                    ⚠️ Warning: This action cannot be undone
+                  </p>
+                  <p className="text-sm text-orange-700 mt-1">
+                    The employer will immediately lose access to the selected certificates.
+                  </p>
+                </div>
+
+                {/* Shared Certificate Selection */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
+                    Select Certificates to Revoke
+                  </label>
+                  {sharedCertificatesLoading ? (
+                    <div className="text-center py-10 text-gray-500">Loading certificates…</div>
+                  ) : sharedCertificates?.filter(cert => !cert.revoked_at).length === 0 ? (
+                    <div className="text-center py-10 text-gray-500">
+                      No active shared certificates
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {sharedCertificates
+                        ?.filter(cert => !cert.revoked_at)
+                        .map((cert: SharedCertificate) => (
+                          <label
+                            key={cert.id}
+                            className="flex items-start gap-3 p-4 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedRevokeCertificates.includes(cert.certificate_id)}
+                              onChange={() => handleRevokeCertificateToggle(cert.certificate_id)}
+                              className="mt-1"
+                            />
+                            <div className="flex-1">
+                              <p className="font-medium text-gray-900">{cert.title}</p>
+                              <p className="text-sm text-gray-500">
+                                {cert.issuer} • Shared: {new Date(cert.created_at).toLocaleDateString()}
+                              </p>
+                              {cert.expiry_date && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Expires: {new Date(cert.expiry_date).toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
+                <button
+                  onClick={() => setRevokeDialogOpen(false)}
+                  disabled={revokeMutation.isPending}
+                  className="px-5 py-2.5 text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRevokeConfirm}
+                  disabled={revokeMutation.isPending || selectedRevokeCertificates.length === 0}
+                  className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {revokeMutation.isPending ? 'Revoking…' : 'Revoke Access'}
                 </button>
               </div>
             </div>

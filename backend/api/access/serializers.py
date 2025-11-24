@@ -59,7 +59,7 @@ class AccessRequestCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         request = self.context["request"]
-        employer = getattr(request.user, "employer", None)
+        employer = getattr(request.user, "employer", None) 
         if not employer:
             raise serializers.ValidationError("Employer account required.")
         if employer.status != Employer.Status.APPROVED:
@@ -80,10 +80,26 @@ class AccessRequestCreateSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated):
-        # Unique DB constraint prevents duplicate pending requests.
+        employer = validated["employer"]
+        applicant = validated["applicant"]
+        
+        # ✅ Check if a PENDING request already exists
+        existing_pending = AccessRequest.objects.filter(
+            employer=employer,
+            applicant=applicant,
+            status=AccessRequest.Status.PENDING
+        ).first()
+        
+        if existing_pending:
+            raise serializers.ValidationError({
+                "detail": "You already have a pending access request for this applicant.",
+                "request_id": existing_pending.id
+            })
+        
+        # Create new request
         return AccessRequest.objects.create(
-            employer=validated["employer"],
-            applicant=validated["applicant"],
+            employer=employer,
+            applicant=applicant,
         )
 
 

@@ -5,7 +5,7 @@ Endpoints:
 - Institution:
   * GET  /api/certificates/institution/              - List certificates
   * GET  /api/certificates/institution/{id}/         - Get details
-  * GET  /api/certificates/institution/{id}/file/    - Download PDF
+  * GET  /api/certificates/institution/{id}/file/    - Download PDF (✅ FIXED: redirect to Storacha)
   * POST /api/certificates/institution/prepare/      - Prepare issuance
   * POST /api/certificates/institution/confirm/      - Confirm issuance
   * POST /api/certificates/institution/verify-batch/ - Verify on blockchain
@@ -14,7 +14,7 @@ Endpoints:
 - Applicant:
   * GET  /api/certificates/my/              - List my certificates
   * GET  /api/certificates/my/{id}/         - Get details
-  * GET  /api/certificates/my/{id}/file/    - Download PDF
+  * GET  /api/certificates/my/{id}/file/    - Download PDF (✅ FIXED: redirect to Storacha)
   * POST /api/certificates/my/verify-batch/ - Verify on blockchain
 """
 
@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from django.db.models import Q
 from django.http import FileResponse, HttpResponse
+from django.shortcuts import redirect
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -87,50 +88,7 @@ def _upload_to_storacha(pdf_file):
         os.unlink(tmp_path)
 
 
-def _fetch_from_storacha(cid):
-    """
-    Fetch PDF from Storacha using Node.js script.
-    Gateway URL: https://{cid}.ipfs.w3s.link
-    """
-    script_path = os.path.join(
-        os.path.dirname(__file__),
-        "..", "..", "helpers", "storacha_fetch.js"
-    )
 
-    if not os.path.exists(script_path):
-        # Fallback to direct HTTP request
-        try:
-            import requests
-            gateway_url = f"https://{cid}.ipfs.w3s.link"
-            response = requests.get(gateway_url, timeout=30)
-
-            if response.status_code == 200:
-                return response.content
-            else:
-                raise RuntimeError(f"Gateway returned status {response.status_code}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to fetch from Storacha: {str(e)}")
-
-    try:
-        result = subprocess.run(
-            ["node", script_path, cid],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30
-        )
-        output = json.loads(result.stdout)
-
-        import base64
-        pdf_bytes = base64.b64decode(output["content_b64"])
-        return pdf_bytes
-
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Storacha fetch script failed: {e.stderr}")
-    except (json.JSONDecodeError, KeyError) as e:
-        raise RuntimeError(f"Invalid response from Storacha script: {e}")
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("Storacha fetch timed out")
 
 
 # ============================================================
@@ -281,22 +239,31 @@ class InstitutionCertificateViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({"success": True, "certificate_id": cert.id}, status=201)
 
     # ----------------------------------------------------------
-    # File Download
+    # File Download (✅ FIXED: Redirect to Storacha)
     # ----------------------------------------------------------
     @action(detail=True, methods=["get"], url_path="file")
     def file(self, request, pk=None):
+        """
+        GET /api/certificates/institution/{id}/file/
+        
+        ✅ FIXED: Redirect to Storacha gateway for direct download.
+        Institution can download certificates they issued.
+        """
         cert = self.get_object()
 
         if not cert.file_cid:
             return Response({"error": "File not found"}, status=404)
 
-        try:
-            pdf = _fetch_from_storacha(cert.file_cid)
-            response = HttpResponse(pdf, content_type='application/pdf')
-            response['Content-Disposition'] = f'inline; filename="certificate_{cert.id}.pdf"'
-            return response
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        # Check if certificate is revoked
+        if cert.revoked_at:
+            return Response(
+                {"error": "Certificate has been revoked"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # ✅ REDIRECT TO STORACHA
+        gateway_url = f"https://{cert.file_cid}.ipfs.w3s.link"
+        return redirect(gateway_url)
 
     # ----------------------------------------------------------
     # Batch Verify
@@ -387,22 +354,31 @@ class MyCertificateViewSet(viewsets.ReadOnlyModelViewSet):
         return MyCertificateListSerializer
 
     # ----------------------------------------------------------
-    # File Download
+    # File Download (✅ FIXED: Redirect to Storacha)
     # ----------------------------------------------------------
     @action(detail=True, methods=["get"], url_path="file")
     def file(self, request, pk=None):
+        """
+        GET /api/certificates/my/{id}/file/
+        
+        ✅ FIXED: Redirect to Storacha gateway for direct download.
+        Applicant can download their own certificates.
+        """
         cert = self.get_object()
 
         if not cert.file_cid:
             return Response({"error": "File not found"}, status=404)
 
-        try:
-            pdf = _fetch_from_storacha(cert.file_cid)
-            response = HttpResponse(pdf, content_type='application/pdf')
-            response['Content-Disposition'] = f'inline; filename="certificate_{cert.id}.pdf"'
-            return response
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+        # Check if certificate is revoked
+        if cert.revoked_at:
+            return Response(
+                {"error": "Certificate has been revoked"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # ✅ REDIRECT TO STORACHA
+        gateway_url = f"https://{cert.file_cid}.ipfs.w3s.link"
+        return redirect(gateway_url)
 
     # ----------------------------------------------------------
     # Batch Verify
