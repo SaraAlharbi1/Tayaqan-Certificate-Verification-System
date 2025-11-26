@@ -39,20 +39,20 @@ from .events import employer_approved, institution_approved
 
 @extend_schema_view(
     login=extend_schema(
-        tags=["Accounts"],
+        tags=["Authentication"],
         summary="User Login",
         description="Login with email/national ID + password. Returns JWT tokens.",
         request=LoginSerializer,
         responses={200: LoginSerializer},
     ),
     refresh=extend_schema(
-        tags=["Accounts"],
+        tags=["Authentication"],
         summary="Refresh JWT Token",
         request=TokenRefreshSerializer,
         responses={200: TokenRefreshSerializer},
     ),
     me=extend_schema(
-        tags=["Accounts"],
+        tags=["Authentication"],
         summary="Get Current User",
         responses={200: MeSerializer},
     ),
@@ -131,19 +131,19 @@ class AuthViewSet(viewsets.GenericViewSet):
 
 @extend_schema_view(
     applicant=extend_schema(
-        tags=["Accounts"],
+        tags=["Registration"],
         summary="Signup as Applicant",
         request=ApplicantSignupSerializer,
         responses={201: {"description": "Created"}},
     ),
     employer=extend_schema(
-        tags=["Accounts"],
+        tags=["Registration"],
         summary="Signup as Employer",
         request=EmployerSignupSerializer,
         responses={201: {"description": "Submitted for approval"}},
     ),
     institution=extend_schema(
-        tags=["Accounts"],
+        tags=["Registration"],
         summary="Signup as Institution",
         request=InstitutionSignupSerializer,
         responses={201: {"description": "Submitted for approval"}},
@@ -301,12 +301,12 @@ class AdminAccountsViewSet(viewsets.GenericViewSet):
 
 @extend_schema_view(
     request_link=extend_schema(
-        tags=["Accounts"],
+        tags=["Authentication"],
         summary="Request Password Reset",
         request=PasswordResetRequestSerializer,
     ),
     confirm=extend_schema(
-        tags=["Accounts"],
+        tags=["Authentication"],
         summary="Confirm Password Reset",
         request=PasswordResetConfirmSerializer,
     ),
@@ -338,6 +338,15 @@ class PasswordViewSet(viewsets.GenericViewSet):
         
         
         
+@extend_schema(
+    tags=["Applicants"],
+    summary="Verify Applicant by National ID",
+    description="Verify if an applicant exists and return their basic info. Used by employers when creating access requests.",
+    responses={
+        200: {"description": "Applicant found", "example": {"full_name": "John Doe", "email": "john@example.com"}},
+        404: {"description": "Applicant not found"},
+    },
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def verify_applicant(request, national_id):

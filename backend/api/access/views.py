@@ -13,6 +13,8 @@ from rest_framework.permissions import IsAuthenticated
 from web3 import Web3
 from django.shortcuts import redirect
 
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.openapi import OpenApiTypes
 
 from .models import AccessRequest, AccessShare
 from .serializers import (
@@ -39,6 +41,44 @@ def _get_employer_id_hash(employer) -> str:
     return Web3.solidity_keccak(['string'], [employer.official_email]).hex()
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Applicant Access"],
+        summary="List Access Requests",
+        description="List all access requests received by the applicant.",
+    ),
+    retrieve=extend_schema(
+        tags=["Applicant Access"],
+        summary="Get Access Request Details",
+        description="Get details of a specific access request.",
+    ),
+    approve=extend_schema(
+        tags=["Applicant Access"],
+        summary="Approve Access Request",
+        description="Approve request and share certificates with blockchain sync.",
+        request=AccessApproveSerializer,
+    ),
+    reject=extend_schema(
+        tags=["Applicant Access"],
+        summary="Reject Access Request",
+        description="Reject an access request from employer.",
+    ),
+    candidate_certificates=extend_schema(
+        tags=["Applicant Access"],
+        summary="List Shareable Certificates",
+        description="Get blockchain-verified certificates available for sharing.",
+    ),
+    shared_certificates=extend_schema(
+        tags=["Applicant Access"],
+        summary="List Shared Certificates",
+        description="Get certificates already shared for this request.",
+    ),
+    revoke_access=extend_schema(
+        tags=["Applicant Access"],
+        summary="Revoke Certificate Access",
+        description="Revoke employer access to specific certificates with blockchain sync.",
+    ),
+)
 class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Applicant views and manages incoming access requests.
@@ -465,6 +505,44 @@ class ApplicantAccessRequestViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Employer Access"],
+        summary="List Employer Access Requests",
+        description="List all access requests created by the employer.",
+    ),
+    retrieve=extend_schema(
+        tags=["Employer Access"],
+        summary="Get Access Request Details",
+        description="Get details of a specific access request.",
+    ),
+    create=extend_schema(
+        tags=["Employer Access"],
+        summary="Create Access Request",
+        description="Create a new access request to an applicant.",
+        request=AccessRequestCreateSerializer,
+    ),
+    update=extend_schema(
+        tags=["Employer Access"],
+        summary="Update Access Request",
+        description="Update an existing access request.",
+    ),
+    partial_update=extend_schema(
+        tags=["Employer Access"],
+        summary="Partial Update Access Request",
+        description="Partially update an existing access request.",
+    ),
+    destroy=extend_schema(
+        tags=["Employer Access"],
+        summary="Delete Access Request",
+        description="Delete an access request.",
+    ),
+    shared=extend_schema(
+        tags=["Employer Access"],
+        summary="Get Shared Certificates",
+        description="Get blockchain-verified certificates shared for this request.",
+    ),
+)
 class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
     """
     Employer creates and views access requests.
@@ -646,6 +724,18 @@ class EmployerAccessRequestViewSet(viewsets.ModelViewSet):
             }
 
 
+@extend_schema_view(
+    retrieve=extend_schema(
+        tags=["Employer Certificates"],
+        summary="Get Certificate Details",
+        description="Get certificate details with blockchain verification.",
+    ),
+    file=extend_schema(
+        tags=["Employer Certificates"],
+        summary="Download Certificate File",
+        description="Download certificate PDF after blockchain verification. Redirects to Storacha gateway.",
+    ),
+)
 class EmployerCertificateViewSet(viewsets.ViewSet):
     """
     Employer views certificate details with blockchain verification.

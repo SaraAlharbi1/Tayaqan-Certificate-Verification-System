@@ -132,6 +132,7 @@ REST_FRAMEWORK = {
 # ------------------------------------------------------------------ Spectacular (Swagger)
 SPECTACULAR_SETTINGS = {
     "TITLE": "Tayaqan API",
+    "DESCRIPTION": "Blockchain-Based Certificate Verification Platform",
     "VERSION": "1.0.0",
     "SECURITY": [{"JWTAuth": []}],
     "COMPONENTS": {
@@ -145,11 +146,24 @@ SPECTACULAR_SETTINGS = {
         "displayOperationId": True,
     },
     "TAGS": [
-        {"name": "1. Accounts", "description": "Auth, signup, admin moderation, password reset."},
-        {"name": "2. Certificates", "description": "Institution issue/revoke, files, tx info."},
-        {"name": "3. Access", "description": "Employer requests, applicant approve/reject, shared certificates."},
-        {"name": "4. My Certificates", "description": "Applicant views and verifies own certificates."},
-        {"name": "5. Employer Certificates", "description": "Employer views shared/global certificates."},
+        # Authentication & Registration
+        {"name": "Authentication", "description": "Login, logout, JWT refresh, password reset."},
+        {"name": "Registration", "description": "Signup for Applicant, Employer, Institution."},
+        
+        # Admin
+        {"name": "Admin", "description": "Admin account moderation (approve/reject)."},
+        
+        # Applicants
+        {"name": "Applicants", "description": "Applicant verification endpoints."},
+        
+        # Certificates
+        {"name": "Institution Certificates", "description": "Institution issues, revokes, and manages certificates."},
+        {"name": "Applicant Certificates", "description": "Applicant views and verifies own certificates."},
+        
+        # Access Control
+        {"name": "Applicant Access", "description": "Applicant manages incoming access requests."},
+        {"name": "Employer Access", "description": "Employer creates and views access requests."},
+        {"name": "Employer Certificates", "description": "Employer views shared certificates with blockchain verification."},
     ],
 }
 

@@ -35,6 +35,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.openapi import OpenApiTypes
+
 from api.accounts.models import Applicant
 from .models import Certificate
 from .permissions import IsInstitutionUser, IsApplicantUser
@@ -126,6 +129,52 @@ class CertificatePagination(PageNumberPagination):
 # Institution Certificate ViewSet
 # ============================================================
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Institution Certificates"],
+        summary="List Institution Certificates",
+        description="List all certificates issued by the institution with search and date filtering.",
+        parameters=[
+            OpenApiParameter(name="search", type=OpenApiTypes.STR, description="Search by applicant name or national ID"),
+            OpenApiParameter(name="issued_on__gte", type=OpenApiTypes.DATE, description="Filter by issue date (from)"),
+            OpenApiParameter(name="issued_on__lte", type=OpenApiTypes.DATE, description="Filter by issue date (to)"),
+        ],
+    ),
+    retrieve=extend_schema(
+        tags=["Institution Certificates"],
+        summary="Get Certificate Details",
+        description="Get detailed information about a specific certificate.",
+    ),
+    prepare=extend_schema(
+        tags=["Institution Certificates"],
+        summary="Prepare Certificate Issuance",
+        description="Upload PDF and prepare blockchain data for certificate issuance. Returns file hash and CID.",
+        request=PrepareIssueSerializer,
+    ),
+    confirm=extend_schema(
+        tags=["Institution Certificates"],
+        summary="Confirm Certificate Issuance",
+        description="Confirm certificate issuance after blockchain transaction. Stores certificate in database.",
+        request=ConfirmIssueSerializer,
+    ),
+    file=extend_schema(
+        tags=["Institution Certificates"],
+        summary="Download Certificate File",
+        description="Redirect to Storacha gateway for PDF download.",
+    ),
+    verify_batch=extend_schema(
+        tags=["Institution Certificates"],
+        summary="Verify Certificates on Blockchain",
+        description="Batch verify multiple certificates on blockchain.",
+        request=VerifyBatchRequestSerializer,
+    ),
+    revoke=extend_schema(
+        tags=["Institution Certificates"],
+        summary="Revoke Certificate",
+        description="Update certificate revocation status after frontend handles blockchain transaction.",
+        request=RevokeRequestSerializer,
+    ),
+)
 class InstitutionCertificateViewSet(viewsets.ReadOnlyModelViewSet):
 
     permission_classes = [IsAuthenticated, IsInstitutionUser]
@@ -339,6 +388,29 @@ class InstitutionCertificateViewSet(viewsets.ReadOnlyModelViewSet):
 # Applicant Certificate ViewSet
 # ============================================================
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Applicant Certificates"],
+        summary="List My Certificates",
+        description="List all certificates belonging to the authenticated applicant.",
+    ),
+    retrieve=extend_schema(
+        tags=["Applicant Certificates"],
+        summary="Get My Certificate Details",
+        description="Get detailed information about a specific certificate.",
+    ),
+    file=extend_schema(
+        tags=["Applicant Certificates"],
+        summary="Download My Certificate File",
+        description="Redirect to Storacha gateway for PDF download.",
+    ),
+    verify_batch=extend_schema(
+        tags=["Applicant Certificates"],
+        summary="Verify My Certificates on Blockchain",
+        description="Batch verify multiple certificates on blockchain.",
+        request=VerifyBatchRequestSerializer,
+    ),
+)
 class MyCertificateViewSet(viewsets.ReadOnlyModelViewSet):
 
     permission_classes = [IsAuthenticated, IsApplicantUser]
