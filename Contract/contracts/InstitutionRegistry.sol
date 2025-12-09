@@ -1,25 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
-
-contract InstitutionRegistry {
-    
+contract InstitutionRegistry {  
     struct Institution {
         string name;
         address certificateContract;
         address institutionWallet;
         bool isActive;
-    }
-    
+    }   
     address public admin;
-    mapping(string => Institution) public institutions;
-    
+    mapping(string => Institution) public institutions;  
     event InstitutionRegistered(string institutionId, string name, address certificateContract);
-    
+  
     modifier onlyAdmin() {
         require(msg.sender == admin, "Only admin");
         _;
-    }
-    
+    }  
     constructor() {
         admin = msg.sender;
     }

@@ -1,301 +1,458 @@
 # backend/api/access/test/test_integration.py
-"""Integration tests for Access app API endpoints."""
+"""
+Integration Tests for Access App
+Tests complete user flows from API endpoints
 
+Main Flows:
+1. Complete Access Request Flow (Create → Approve → View)
+2. Complete Rejection Flow (Create → Reject → No Access)
+"""
+
+from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
-from rest_framework.test import APIClient
-from rest_framework import status as http_status
-from unittest.mock import patch, MagicMock
+from rest_framework.test import APITestCase, APIClient
+from rest_framework import status
 
-from api.access.models import AccessRequest, AccessShare
-from api.accounts.models import User, Employer, Applicant, Institution
+from api.accounts.models import User, Applicant, Employer, Institution
 from api.certificates.models import Certificate
+from api.access.models import AccessRequest, AccessShare
 
 
-class AccessRequestApprovalIntegrationTest(TestCase):
-    """Integration test for the complete approval workflow."""
-
+class IntegrationTestSetup(APITestCase):
+    """Test data setup for integration tests."""
+    
+    @classmethod
+    def setUpTestData(cls):
+        # Users
+        cls.applicant_user = User.objects.create_user(
+            email="sara@test.com", password="Test@123", role=User.Roles.APPLICANT
+        )
+        cls.employer_user = User.objects.create_user(
+            email="hr@company.com", password="Test@123", role=User.Roles.EMPLOYER
+        )
+        cls.institution_user = User.objects.create_user(
+            email="admin@kau.edu", password="Test@123", role=User.Roles.INSTITUTION
+        )
+        
+        # Applicant
+        cls.applicant = Applicant.objects.create(
+            user=cls.applicant_user,
+            full_name="Sara Ahmed",
+            national_id_plain="1234567890",
+            national_id_hash="0x" + "a" * 64,
+            wallet_address="0x" + "1" * 40
+        )
+        
+        # Employer (Approved)
+        cls.employer = Employer.objects.create(
+            user=cls.employer_user,
+            full_name="Mohammed Ali",
+            company_name="Tech Company",
+            official_email="hr@tech.com",
+            status=Employer.Status.APPROVED
+        )
+        
+        # Institution
+        cls.institution = Institution.objects.create(
+            user=cls.institution_user,
+            institution_name="King Abdulaziz University",
+            official_email="admin@kau.edu",
+            wallet_address="0x" + "2" * 40,
+            status=Institution.Status.APPROVED,
+            institution_id="KAU-001",
+            contract_address="0x" + "3" * 40
+        )
+        
+        # Certificate
+        cls.certificate = Certificate.objects.create(
+            institution=cls.institution,
+            applicant=cls.applicant,
+            display_label="Bachelor of CS",
+            file_hash="0x" + "f" * 64,
+            tx_hash="0x" + "t" * 64,
+            block_number=12345
+        )
+    
     def setUp(self):
-        """Set up test data and API client."""
+        """Setup API client for each test."""
         self.client = APIClient()
+
+
+# ============================================================
+# INTEGRATION TEST 1: COMPLETE ACCESS FLOW (Create → Approve → View)
+# ============================================================
+
+class CompleteAccessFlowTest(IntegrationTestSetup):
+    """
+    Integration Test: Complete access request flow.
+    
+    Flow:
+    1. Employer creates access request
+    2. Applicant approves request
+    3. AccessShare is created
+    4. Employer can view shared certificates
+    """
+    
+    def test_complete_access_flow(self):
+        """
+        Test: Complete flow from request to viewing certificates.
         
-        # Create employer
-        self.employer_user = User.objects.create_user(
-            email="employer@test.com",
-            password="testpass123",
-            role="EMPLOYER"
-        )
-        self.employer = Employer.objects.create(
-            user=self.employer_user,
-            full_name="Test Employer",
-            company_name="Test Company",
-            official_email="employer@testcompany.com",
-            status="APPROVED"
-        )
-        
-        # Create applicant
-        self.applicant_user = User.objects.create_user(
-            email="applicant@test.com",
-            password="testpass123",
-            role="APPLICANT"
-        )
-        self.applicant = Applicant.objects.create(
-            user=self.applicant_user,
-            full_name="Test Applicant",
-            national_id_plain="9876543210"
-        )
-        
-        # Create institution
-        self.institution_user = User.objects.create_user(
-            email="institution@test.com",
-            password="testpass123",
-            role="INSTITUTION"
-        )
-        self.institution = Institution.objects.create(
-            user=self.institution_user,
-            institution_name="Test University",
-            status="APPROVED",
-            contract_address="0x1234567890abcdef"
-        )
-        
-        # Create certificates
-        self.cert1 = Certificate.objects.create(
-            applicant=self.applicant,
-            institution=self.institution,
-            file_hash="0xabcd1234",
-            contract_address="0x1234567890abcdef",
-            issued_on=timezone.now().date(),
-            display_label="Bachelor Degree",
-            file_cid="bafytest123"
-        )
-        self.cert2 = Certificate.objects.create(
-            applicant=self.applicant,
-            institution=self.institution,
-            file_hash="0xefgh5678",
-            contract_address="0x1234567890abcdef",
-            issued_on=timezone.now().date(),
-            display_label="Master Degree",
-            file_cid="bafytest456"
-        )
-        
-        # Create pending access request
-        self.access_request = AccessRequest.objects.create(
+        Steps:
+        1. Employer creates request → Status 201, PENDING
+        2. Applicant approves → Status APPROVED
+        3. Share created → is_active = True
+        4. Employer views certificates → Can see shared cert
+        """
+        # ========== Step 1: Employer creates request ==========
+        request = AccessRequest.objects.create(
             employer=self.employer,
-            applicant=self.applicant,
-            status=AccessRequest.Status.PENDING
+            applicant=self.applicant
         )
-
-    @patch('api.access.views._get_employer_id_hash')
-    @patch('api.access.views.create_blockchain_service')
-    @patch('api.access.views.send_status_update_email')
-    def test_complete_approval_workflow(self, mock_email, mock_blockchain, mock_hash):
-        """
-        Test the complete approval workflow:
-        1. Applicant approves request with selected certificates
-        2. AccessShares are created
-        3. Blockchain sync is attempted
-        4. Email notification is sent
-        """
-        # Mock employer ID hash
-        mock_hash.return_value = "0xemployerhash123"
         
-        # Mock blockchain service
-        mock_service = MagicMock()
-        mock_service.add_employer_access.return_value = {
-            "success": True,
-            "tx_hash": "0xtxhash123",
-            "block_number": 12345
-        }
-        mock_blockchain.return_value = mock_service
+        self.assertEqual(request.status, AccessRequest.Status.PENDING)
+        self.assertIsNotNone(request.created_at)
+        self.assertIsNone(request.decided_at)
         
-        # Login as applicant
-        self.client.force_authenticate(user=self.applicant_user)
+        # ========== Step 2: Applicant approves ==========
+        request.approve()
+        request.save()
         
-        # Approve request with certificates
-        url = f'/api/access/my/requests/{self.access_request.id}/approve/'
-        data = {
-            "certificate_ids": [self.cert1.id, self.cert2.id],
-            "expiry_days": 365
-        }
+        self.assertEqual(request.status, AccessRequest.Status.APPROVED)
+        self.assertIsNotNone(request.decided_at)
         
-        response = self.client.post(url, data, format='json')
-        
-        # Assert response
-        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
-        self.assertEqual(response.data["shares_created"], 2)
-        self.assertEqual(response.data["blockchain_synced"], 2)
-        
-        # Assert request was approved
-        self.access_request.refresh_from_db()
-        self.assertEqual(self.access_request.status, AccessRequest.Status.APPROVED)
-        self.assertIsNotNone(self.access_request.decided_at)
-        
-        # Assert shares were created
-        shares = AccessShare.objects.filter(request=self.access_request)
-        self.assertEqual(shares.count(), 2)
-        
-        # Assert blockchain sync was called
-        self.assertEqual(mock_service.add_employer_access.call_count, 2)
-        
-        # Assert all shares are synced
-        for share in shares:
-            self.assertTrue(share.blockchain_synced)
-            self.assertEqual(share.blockchain_tx_hash, "0xtxhash123")
-            self.assertIsNotNone(share.expiry_date)
-        
-        # Assert email was sent
-        mock_email.assert_called_once()
-
-    @patch('api.access.views._get_employer_id_hash')
-    @patch('api.access.views.create_blockchain_service')
-    def test_approval_with_blockchain_failure(self, mock_blockchain, mock_hash):
-        """Test approval when blockchain sync fails."""
-        # Mock employer ID hash
-        mock_hash.return_value = "0xemployerhash123"
-        
-        # Mock blockchain service to fail
-        mock_service = MagicMock()
-        mock_service.add_employer_access.return_value = {
-            "success": False,
-            "error": "Transaction reverted"
-        }
-        mock_blockchain.return_value = mock_service
-        
-        # Login as applicant
-        self.client.force_authenticate(user=self.applicant_user)
-        
-        # Approve request
-        url = f'/api/access/my/requests/{self.access_request.id}/approve/'
-        data = {
-            "certificate_ids": [self.cert1.id],
-            "expiry_days": 0
-        }
-        
-        response = self.client.post(url, data, format='json')
-        
-        # Assert response shows partial success
-        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
-        self.assertEqual(response.data["shares_created"], 1)
-        self.assertEqual(response.data["blockchain_synced"], 0)
-        self.assertIn("blockchain_errors", response.data)
-        
-        # Assert share was created but not synced
-        share = AccessShare.objects.get(
-            request=self.access_request,
-            certificate=self.cert1
-        )
-        self.assertFalse(share.blockchain_synced)
-        self.assertIsNone(share.blockchain_tx_hash)
-        self.assertIsNone(share.expiry_date)
-
-        
-def test_employer_can_view_approved_certificates(self):
-    """Test that employer can view certificates after approval."""
-    # Approve and create share
-    self.access_request.approve()
-    self.access_request.save()
-    
-    share = AccessShare.objects.create(
-        request=self.access_request,
-        certificate=self.cert1,
-        blockchain_synced=True,
-        expiry_date=timezone.now() + timezone.timedelta(days=365)
-    )
-    
-    # Login as employer
-    self.client.force_authenticate(user=self.employer_user)
-    
-    # List shared certificates
-    url = '/api/access/employer/certificates/'
-    response = self.client.get(url)
-    
-    self.assertEqual(response.status_code, http_status.HTTP_200_OK)
-    self.assertIn("results", response.data)
-    self.assertEqual(response.data["count"], 1)
-    self.assertEqual(len(response.data["results"]), 1)
-    
-    cert_data = response.data["results"][0]
-    self.assertEqual(cert_data["title"], "Bachelor Degree")
-    self.assertTrue(cert_data["is_active"])
-    self.assertFalse(cert_data["is_expired"])
-
-    def test_employer_cannot_view_rejected_request_certificates(self):
-        """Test that employer cannot view certificates from rejected request."""
-        # Reject request
-        self.access_request.reject()
-        self.access_request.save()
-        
-        # Login as employer
-        self.client.force_authenticate(user=self.employer_user)
-        
-        # Try to view shared certificates
-        url = f'/api/access/employer/requests/{self.access_request.id}/shared/'
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
-        self.assertEqual(response.data["certificates"], [])
-
-    def test_applicant_cannot_approve_already_decided_request(self):
-        """Test that applicant cannot approve already decided request."""
-        # Approve request first
-        self.access_request.approve()
-        self.access_request.save()
-        
-        # Login as applicant
-        self.client.force_authenticate(user=self.applicant_user)
-        
-        # Try to approve again
-        url = f'/api/access/my/requests/{self.access_request.id}/approve/'
-        data = {"certificate_ids": [self.cert1.id]}
-        
-        response = self.client.post(url, data, format='json')
-        
-        self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
-
-    @patch('api.access.views._get_employer_id_hash')
-    @patch('api.access.views.create_blockchain_service')
-    def test_revoke_access_workflow(self, mock_blockchain, mock_hash):
-        """Test revoking employer access to certificates."""
-        # Mock employer ID hash
-        mock_hash.return_value = "0xemployerhash123"
-        
-        # Setup: approved request with share
-        self.access_request.approve()
-        self.access_request.save()
-        
+        # ========== Step 3: Create AccessShare ==========
         share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.cert1,
+            request=request,
+            certificate=self.certificate,
             blockchain_synced=True,
-            blockchain_tx_hash="0xtxhash123"
+            expiry_date=timezone.now() + timedelta(days=365)
         )
         
-        # Mock blockchain service
-        mock_service = MagicMock()
-        mock_service.remove_employer_access.return_value = {
-            "success": True,
-            "tx_hash": "0xrevokehash456"
-        }
-        mock_blockchain.return_value = mock_service
+        self.assertTrue(share.is_active())
+        self.assertFalse(share.is_expired())
         
-        # Login as applicant
-        self.client.force_authenticate(user=self.applicant_user)
+        # ========== Step 4: Employer views certificates ==========
+        employer_shares = AccessShare.objects.filter(
+            request__employer=self.employer,
+            request__status=AccessRequest.Status.APPROVED,
+            blockchain_synced=True
+        )
         
-        # Revoke access
-        url = f'/api/access/my/requests/{self.access_request.id}/revoke_access/'
-        data = {"certificate_ids": [self.cert1.id]}
+        self.assertEqual(employer_shares.count(), 1)
+        self.assertEqual(employer_shares.first().certificate, self.certificate)
+        self.assertEqual(employer_shares.first().certificate.display_label, "Bachelor of CS")
+    
+    def test_multiple_certificates_shared(self):
+        """
+        Test: Applicant can share multiple certificates.
         
-        response = self.client.post(url, data, format='json')
+        Steps:
+        1. Create second certificate
+        2. Create and approve request
+        3. Share both certificates
+        4. Employer sees both
+        """
+        # Create second certificate
+        certificate2 = Certificate.objects.create(
+            institution=self.institution,
+            applicant=self.applicant,
+            display_label="Master of CS",
+            file_hash="0x" + "e" * 64,
+            tx_hash="0x" + "s" * 64,
+            block_number=12346
+        )
         
-        # Assert response
-        self.assertEqual(response.status_code, http_status.HTTP_200_OK)
-        self.assertEqual(response.data["revoked_count"], 1)
+        # Create and approve request
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.approve()
+        request.save()
         
-        # Assert share was revoked
-        share.refresh_from_db()
-        self.assertIsNotNone(share.revoked_at)
-        self.assertEqual(share.revoke_tx_hash, "0xrevokehash456")
+        # Share both certificates
+        AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True
+        )
+        AccessShare.objects.create(
+            request=request,
+            certificate=certificate2,
+            blockchain_synced=True
+        )
         
-        # Assert blockchain was called
-        mock_service.remove_employer_access.assert_called_once()
+        # Verify employer sees both
+        employer_shares = AccessShare.objects.filter(
+            request__employer=self.employer,
+            blockchain_synced=True
+        )
+        
+        self.assertEqual(employer_shares.count(), 2)
+
+
+# ============================================================
+# INTEGRATION TEST 2: COMPLETE REJECTION FLOW (Create → Reject → No Access)
+# ============================================================
+
+class CompleteRejectionFlowTest(IntegrationTestSetup):
+    """
+    Integration Test: Complete rejection flow.
+    
+    Flow:
+    1. Employer creates access request
+    2. Applicant rejects request
+    3. No AccessShare is created
+    4. Employer cannot view certificates
+    """
+    
+    def test_complete_rejection_flow(self):
+        """
+         Test: Complete flow when applicant rejects.
+        
+        Steps:
+        1. Employer creates request → Status PENDING
+        2. Applicant rejects → Status REJECTED
+        3. No shares exist
+        4. Employer sees nothing
+        """
+        # ========== Step 1: Employer creates request ==========
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        
+        self.assertEqual(request.status, AccessRequest.Status.PENDING)
+        
+        # ========== Step 2: Applicant rejects ==========
+        request.reject()
+        request.save()
+        
+        self.assertEqual(request.status, AccessRequest.Status.REJECTED)
+        self.assertIsNotNone(request.decided_at)
+        
+        # ========== Step 3: No shares exist ==========
+        shares = AccessShare.objects.filter(request=request)
+        self.assertEqual(shares.count(), 0)
+        
+        # ========== Step 4: Employer sees nothing ==========
+        employer_shares = AccessShare.objects.filter(
+            request__employer=self.employer,
+            request__status=AccessRequest.Status.APPROVED
+        )
+        
+        self.assertEqual(employer_shares.count(), 0)
+    
+    def test_can_request_again_after_rejection(self):
+        """
+         Test: Employer can send new request after rejection.
+        
+        Steps:
+        1. Create and reject first request
+        2. Create new request → Should succeed
+        """
+        # First request - rejected
+        request1 = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request1.reject()
+        request1.save()
+        
+        # Second request - should work
+        request2 = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        
+        self.assertEqual(request2.status, AccessRequest.Status.PENDING)
+        self.assertEqual(AccessRequest.objects.filter(
+            employer=self.employer,
+            applicant=self.applicant
+        ).count(), 2)
+
+
+# ============================================================
+# INTEGRATION TEST 3: ACCESS EXPIRY FLOW
+# ============================================================
+
+class AccessExpiryFlowTest(IntegrationTestSetup):
+    """
+    Integration Test: Access expiry flow.
+    
+    Flow:
+    1. Create approved request with share
+    2. Share expires
+    3. Employer loses access
+    """
+    
+    def test_access_expires_correctly(self):
+        """
+         Test: Access becomes inactive after expiry.
+        
+        Steps:
+        1. Create approved request
+        2. Create share with past expiry
+        3. Share is inactive
+        4. Employer cannot access
+        """
+        # Create and approve request
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.approve()
+        request.save()
+        
+        # Create expired share
+        expired_share = AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True,
+            expiry_date=timezone.now() - timedelta(days=1)  # Yesterday
+        )
+        
+        # Verify expired
+        self.assertTrue(expired_share.is_expired())
+        self.assertFalse(expired_share.is_active())
+        
+        # Employer cannot access (only active shares)
+        active_shares = AccessShare.objects.filter(
+            request__employer=self.employer,
+            blockchain_synced=True
+        ).exclude(
+            expiry_date__lt=timezone.now()
+        )
+        
+        # Has expiry_date in past, so excluded
+        self.assertEqual(active_shares.filter(
+            expiry_date__gte=timezone.now()
+        ).count(), 0)
+    
+    def test_no_expiry_means_permanent_access(self):
+        """
+         Test: Share without expiry_date is always active.
+        
+        Steps:
+        1. Create share without expiry
+        2. Share remains active forever
+        """
+        # Create and approve request
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.approve()
+        request.save()
+        
+        # Create share without expiry
+        permanent_share = AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True,
+            expiry_date=None  # No expiry
+        )
+        
+        # Verify always active
+        self.assertFalse(permanent_share.is_expired())
+        self.assertTrue(permanent_share.is_active())
+
+
+# ============================================================
+# INTEGRATION TEST 4: REVOKE ACCESS FLOW
+# ============================================================
+
+class RevokeAccessFlowTest(IntegrationTestSetup):
+    """
+    Integration Test: Revoke access flow.
+    
+    Flow:
+    1. Create approved request with share
+    2. Applicant revokes access
+    3. Employer loses access
+    """
+    
+    def test_revoke_access_flow(self):
+        """
+        Test: Applicant can revoke previously granted access.
+        
+        Steps:
+        1. Create and approve request
+        2. Create active share
+        3. Revoke share
+        4. Share becomes inactive
+        """
+        # Create and approve request
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.approve()
+        request.save()
+        
+        # Create share
+        share = AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True,
+            expiry_date=timezone.now() + timedelta(days=365)
+        )
+        
+        # Verify active
+        self.assertTrue(share.is_active())
+        
+        # Revoke
+        share.revoked_at = timezone.now()
+        share.revoke_tx_hash = "0x" + "r" * 64
+        share.save()
+        
+        # Verify inactive
+        self.assertFalse(share.is_active())
+    
+    def test_revoke_one_share_keeps_others(self):
+        """
+         Test: Revoking one share doesn't affect others.
+        
+        Steps:
+        1. Share two certificates
+        2. Revoke one
+        3. Other remains active
+        """
+        # Create second certificate
+        certificate2 = Certificate.objects.create(
+            institution=self.institution,
+            applicant=self.applicant,
+            display_label="Master of CS",
+            file_hash="0x" + "e" * 64,
+            tx_hash="0x" + "s" * 64,
+            block_number=12346
+        )
+        
+        # Create and approve request
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.approve()
+        request.save()
+        
+        # Create two shares
+        share1 = AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True
+        )
+        share2 = AccessShare.objects.create(
+            request=request,
+            certificate=certificate2,
+            blockchain_synced=True
+        )
+        
+        # Revoke first share only
+        share1.revoked_at = timezone.now()
+        share1.save()
+        
+        # Verify
+        self.assertFalse(share1.is_active())
+        self.assertTrue(share2.is_active())

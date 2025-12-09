@@ -1,20 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
-
 contract CertificateRegistry {
-
-    // ============ STATE VARIABLES ============
-    
+    // ============ STATE VARIABLES ============  
     address public institutionWallet;
-    address public adminWallet;
-    
-    // ============ STRUCTS ============
-    
+    address public adminWallet;   
+    // ============ STRUCTS ============  
     struct Employer {
         bytes32 id;
         uint256 expiryDate;
     }
-    
     struct Certificate {
         string certificateHash;
         bytes32 applicantIdHash;
@@ -22,19 +16,16 @@ contract CertificateRegistry {
         uint256 issueDate;
         bool isRevoked;
         Employer[] allowedEmployers;
-    }
-    
-    // ============ MAPPINGS ============
-    
-    mapping(string => Certificate) public certificates;
-    
-    // ============ EVENTS ============
-    
+    }  
+    // ============ MAPPINGS ============  
+    mapping(string => Certificate) public certificates;  
+
+
+    // ============ EVENTS ============ 
     event CertificateIssued(
         string indexed certificateHash, 
         bytes32 indexed applicantIdHash
-    );
-    
+    ); 
     event CertificateRevoked(string indexed certificateHash);
     
     event EmployerAccessGranted(
@@ -49,10 +40,7 @@ contract CertificateRegistry {
         bytes32 indexed employerId,
         address revokedBy
     );
-    
-    // ============ MODIFIERS ============
-    
-    modifier onlyInstitution() {
+     modifier onlyInstitution() {
         require(
             msg.sender == institutionWallet,
             "Only institution can call this"
@@ -60,16 +48,14 @@ contract CertificateRegistry {
         _;
     }
     
-    modifier onlyInstitutionOrAdmin() {
+    modifier onlyAdmin() {
         require(
-            msg.sender == institutionWallet || msg.sender == adminWallet,
-            "Only institution or admin can call this"
+            msg.sender == adminWallet,
+            "Only admin can call this"
         );
         _;
     }
-    
-    // ============ CONSTRUCTOR ============
-    
+    // ============ CONSTRUCTOR ============   
     constructor(address _institutionWallet, address _adminWallet) {
         require(_institutionWallet != address(0), "Invalid institution address");
         require(_adminWallet != address(0), "Invalid admin address");
@@ -77,7 +63,6 @@ contract CertificateRegistry {
         institutionWallet = _institutionWallet;
         adminWallet = _adminWallet;
     }
-    
     // ============ CERTIFICATE MANAGEMENT ============
     
     function issueCertificate(
@@ -89,8 +74,7 @@ contract CertificateRegistry {
         require(
             bytes(certificates[_certificateHash].certificateHash).length == 0,
             "Certificate already exists"
-        );
-        
+        );      
         Certificate storage newCert = certificates[_certificateHash];
         newCert.certificateHash = _certificateHash;
         newCert.applicantIdHash = _applicantIdHash;
@@ -115,8 +99,7 @@ contract CertificateRegistry {
         require(
             bytes(cert.certificateHash).length > 0,
             "Certificate does not exist"
-        );
-        
+        );  
         return (
             cert.certificateType,
             cert.issueDate,
@@ -132,8 +115,7 @@ contract CertificateRegistry {
         require(
             bytes(certificates[_certificateHash].certificateHash).length > 0,
             "Certificate does not exist"
-        );
-        
+        );      
         certificates[_certificateHash].isRevoked = true;
         emit CertificateRevoked(_certificateHash);
     }
@@ -144,24 +126,21 @@ contract CertificateRegistry {
         string memory _certificateHash,
         bytes32 _employerId,
         uint256 _expiryDate
-    ) external onlyInstitutionOrAdmin {
+    ) external onlyAdmin {
         Certificate storage cert = certificates[_certificateHash];
         
         require(
             bytes(cert.certificateHash).length > 0,
             "Certificate does not exist"
-        );
-        
-        require(!cert.isRevoked, "Certificate is revoked");
-        
+        );       
+        require(!cert.isRevoked, "Certificate is revoked");    
         // Check if employer already has access
         for (uint i = 0; i < cert.allowedEmployers.length; i++) {
             require(
                 cert.allowedEmployers[i].id != _employerId,
                 "Employer already has access"
             );
-        }
-        
+        }     
         // Add employer
         cert.allowedEmployers.push(Employer({
             id: _employerId,
@@ -179,7 +158,7 @@ contract CertificateRegistry {
     function removeEmployerAccess(
         string memory _certificateHash,
         bytes32 _employerId
-    ) external onlyInstitutionOrAdmin {
+    ) external onlyAdmin() {
         Certificate storage cert = certificates[_certificateHash];
         
         require(
@@ -199,10 +178,8 @@ contract CertificateRegistry {
                 found = true;
                 break;
             }
-        }
-        
-        require(found, "Employer does not have access");
-        
+        }      
+        require(found, "Employer does not have access");  
         emit EmployerAccessRevoked(_certificateHash, _employerId, msg.sender);
     }
     
@@ -210,13 +187,11 @@ contract CertificateRegistry {
         string memory _certificateHash,
         bytes32 _employerId
     ) external view returns (bool hasAccess, uint256 expiryDate) {
-        Certificate storage cert = certificates[_certificateHash];
-        
+        Certificate storage cert = certificates[_certificateHash];     
         // Certificate must exist and not be revoked
         if (bytes(cert.certificateHash).length == 0 || cert.isRevoked) {
             return (false, 0);
-        }
-        
+        }     
         // Check if employer is in the list
         for (uint i = 0; i < cert.allowedEmployers.length; i++) {
             if (cert.allowedEmployers[i].id == _employerId) {
@@ -229,8 +204,7 @@ contract CertificateRegistry {
                     return (false, expiry);
                 }
             }
-        }
-        
+        }     
         return (false, 0);
     }
 }

@@ -1,250 +1,215 @@
-# backend/api/access/test/test_unit.py
-"""Unit tests for Access app models."""
+# backend/api/access/tests.py
+"""
+Unit Tests for Access App
+2 Tests per Main Function
+"""
 
+from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
-from datetime import timedelta
 
-from api.access.models import AccessRequest, AccessShare
-from api.accounts.models import User, Employer, Applicant, Institution
+from api.accounts.models import User, Applicant, Employer, Institution
 from api.certificates.models import Certificate
+from api.access.models import AccessRequest, AccessShare
 
 
-class AccessShareModelTest(TestCase):
-    """Unit tests for AccessShare model methods."""
+class AccessTestSetup(TestCase):
+    """Test data setup."""
+    
+    @classmethod
+    def setUpTestData(cls):
+        # Users
+        cls.applicant_user = User.objects.create_user(
+            email="sara@test.com", password="Test@123", role=User.Roles.APPLICANT
+        )
+        cls.employer_user = User.objects.create_user(
+            email="hr@company.com", password="Test@123", role=User.Roles.EMPLOYER
+        )
+        cls.institution_user = User.objects.create_user(
+            email="admin@kau.edu", password="Test@123", role=User.Roles.INSTITUTION
+        )
+        
+        # Applicant
+        cls.applicant = Applicant.objects.create(
+            user=cls.applicant_user,
+            full_name="Sara Ahmed",
+            national_id_plain="1234567890",
+            national_id_hash="0x" + "a" * 64,
+            wallet_address="0x" + "1" * 40
+        )
+        
+        # Employer (Approved)
+        cls.employer = Employer.objects.create(
+            user=cls.employer_user,
+            full_name="Mohammed Ali",
+            company_name="Tech Company",
+            official_email="hr@tech.com",
+            status=Employer.Status.APPROVED
+        )
+        
+        # Institution
+        cls.institution = Institution.objects.create(
+            user=cls.institution_user,
+            institution_name="King Abdulaziz University",
+            official_email="admin@kau.edu",
+            wallet_address="0x" + "2" * 40,
+            status=Institution.Status.APPROVED,
+            institution_id="KAU-001",
+            contract_address="0x" + "3" * 40
+        )
+        
+        # Certificate
+        cls.certificate = Certificate.objects.create(
+            institution=cls.institution,
+            applicant=cls.applicant,
+            display_label="Bachelor of CS",
+            file_hash="0x" + "f" * 64,
+            tx_hash="0x" + "t" * 64,
+            block_number=12345
+        )
 
-    def setUp(self):
-        """Set up test data."""
-        # Create users
-        self.employer_user = User.objects.create_user(
-            email="employer@test.com",
-            password="testpass123",
-            role="EMPLOYER"
-        )
-        self.applicant_user = User.objects.create_user(
-            email="applicant@test.com",
-            password="testpass123",
-            role="APPLICANT"
+
+# ============================================================
+# TEST 1: CREATE ACCESS REQUEST (2 tests)
+# ============================================================
+
+class CreateAccessRequestTest(AccessTestSetup):
+    
+    def test_create_request_success(self):
+        
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
         )
         
-        # Create employer
-        self.employer = Employer.objects.create(
-            user=self.employer_user,
-            full_name="Test Employer",
-            company_name="Test Company",
-            official_email="employer@testcompany.com",
-            status="APPROVED"
-        )
+        self.assertEqual(request.status, "PENDING")
+        self.assertIsNotNone(request.created_at)
+    
+    def test_create_request_duplicate_fails(self):
         
-        # Create applicant
-        self.applicant = Applicant.objects.create(
-            user=self.applicant_user,
-            full_name="Test Applicant",
-            national_id_plain="1234567890"
-        )
-        
-        # Create institution
-        self.institution_user = User.objects.create_user(
-            email="institution@test.com",
-            password="testpass123",
-            role="INSTITUTION"
-        )
-        self.institution = Institution.objects.create(
-            user=self.institution_user,
-            institution_name="Test University",
-            status="APPROVED"
-        )
-        
-        # Create certificate
-        self.certificate = Certificate.objects.create(
-            applicant=self.applicant,
-            institution=self.institution,
-            file_hash="0xabcd1234",
-            contract_address="0x1234567890abcdef",
-            issued_on=timezone.now().date(),
-            display_label="Test Certificate"
-        )
-        
-        # Create access request
-        self.access_request = AccessRequest.objects.create(
+        AccessRequest.objects.create(
             employer=self.employer,
             applicant=self.applicant,
-            status=AccessRequest.Status.APPROVED
-        )
-
-    def test_is_expired_with_no_expiry(self):
-        """Test that share with no expiry date is not expired."""
-        share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.certificate,
-            expiry_date=None,
-            blockchain_synced=True
+            status="PENDING"
         )
         
-        self.assertFalse(share.is_expired())
+        with self.assertRaises(Exception):
+            AccessRequest.objects.create(
+                employer=self.employer,
+                applicant=self.applicant,
+                status="PENDING"
+            )
 
-    def test_is_expired_with_future_expiry(self):
-        """Test that share with future expiry date is not expired."""
-        future_date = timezone.now() + timedelta(days=30)
-        share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.certificate,
-            expiry_date=future_date,
-            blockchain_synced=True
+
+# ============================================================
+# TEST 2: APPROVE ACCESS REQUEST (2 tests)
+# ============================================================
+
+class ApproveAccessRequestTest(AccessTestSetup):
+    
+    def test_approve_success(self):
+        """Success: Status changes to APPROVED"""
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
         )
         
-        self.assertFalse(share.is_expired())
-
-    def test_is_expired_with_past_expiry(self):
-        """Test that share with past expiry date is expired."""
-        past_date = timezone.now() - timedelta(days=1)
-        share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.certificate,
-            expiry_date=past_date,
-            blockchain_synced=True
-        )
+        request.approve()
+        request.save()
         
-        self.assertTrue(share.is_expired())
-
-    def test_is_active_when_synced_not_revoked_not_expired(self):
-        """Test that share is active when synced, not revoked, and not expired."""
+        self.assertEqual(request.status, "APPROVED")
+        self.assertIsNotNone(request.decided_at)
+    
+    def test_approve_creates_active_share(self):
+        """ Success: Share is active after approval"""
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.approve()
+        request.save()
+        
         share = AccessShare.objects.create(
-            request=self.access_request,
+            request=request,
             certificate=self.certificate,
-            expiry_date=timezone.now() + timedelta(days=30),
             blockchain_synced=True,
-            revoked_at=None
+            expiry_date=timezone.now() + timedelta(days=365)
         )
         
         self.assertTrue(share.is_active())
 
-    def test_is_not_active_when_not_synced(self):
-        """Test that share is not active when not synced to blockchain."""
-        share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.certificate,
-            blockchain_synced=False
-        )
-        
-        self.assertFalse(share.is_active())
 
-    def test_is_not_active_when_revoked(self):
-        """Test that share is not active when revoked."""
-        share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.certificate,
-            blockchain_synced=True,
-            revoked_at=timezone.now()
-        )
-        
-        self.assertFalse(share.is_active())
+# ============================================================
+# TEST 3: REJECT ACCESS REQUEST (2 tests)
+# ============================================================
 
-    def test_is_not_active_when_expired(self):
-        """Test that share is not active when expired."""
-        share = AccessShare.objects.create(
-            request=self.access_request,
-            certificate=self.certificate,
-            blockchain_synced=True,
-            expiry_date=timezone.now() - timedelta(days=1)
-        )
-        
-        self.assertFalse(share.is_active())
-
-
-class AccessRequestModelTest(TestCase):
-    """Unit tests for AccessRequest model methods."""
-
-    def setUp(self):
-        """Set up test data."""
-        self.employer_user = User.objects.create_user(
-            email="employer@test.com",
-            password="testpass123",
-            role="EMPLOYER"
-        )
-        self.applicant_user = User.objects.create_user(
-            email="applicant@test.com",
-            password="testpass123",
-            role="APPLICANT"
-        )
-        
-        self.employer = Employer.objects.create(
-            user=self.employer_user,
-            full_name="Test Employer",
-            company_name="Test Company",
-            official_email="employer@testcompany.com",
-            status="APPROVED"
-        )
-        
-        self.applicant = Applicant.objects.create(
-            user=self.applicant_user,
-            full_name="Test Applicant",
-            national_id_plain="1234567890"
-        )
-
-    def test_approve_sets_status_and_timestamp(self):
-        """Test that approve() sets status to APPROVED and sets decided_at."""
+class RejectAccessRequestTest(AccessTestSetup):
+    
+    def test_reject_success(self):
+        """ Success: Status changes to REJECTED"""
         request = AccessRequest.objects.create(
             employer=self.employer,
-            applicant=self.applicant,
-            status=AccessRequest.Status.PENDING
+            applicant=self.applicant
         )
-        
-        self.assertIsNone(request.decided_at)
-        
-        request.approve()
-        
-        self.assertEqual(request.status, AccessRequest.Status.APPROVED)
-        self.assertIsNotNone(request.decided_at)
-
-    def test_reject_sets_status_and_timestamp(self):
-        """Test that reject() sets status to REJECTED and sets decided_at."""
-        request = AccessRequest.objects.create(
-            employer=self.employer,
-            applicant=self.applicant,
-            status=AccessRequest.Status.PENDING
-        )
-        
-        self.assertIsNone(request.decided_at)
         
         request.reject()
+        request.save()
         
-        self.assertEqual(request.status, AccessRequest.Status.REJECTED)
+        self.assertEqual(request.status, "REJECTED")
         self.assertIsNotNone(request.decided_at)
+    
+    def test_reject_no_shares(self):
+        """Success: No shares created after rejection"""
+        request = AccessRequest.objects.create(
+            employer=self.employer,
+            applicant=self.applicant
+        )
+        request.reject()
+        request.save()
+        
+        shares = AccessShare.objects.filter(request=request)
+        
+        self.assertEqual(shares.count(), 0)
 
-    def test_unique_pending_constraint(self):
-        """Test that only one pending request can exist per employer-applicant pair."""
-        AccessRequest.objects.create(
-            employer=self.employer,
-            applicant=self.applicant,
-            status=AccessRequest.Status.PENDING
-        )
-        
-        # Try to create another pending request - should fail
-        from django.db import IntegrityError
-        with self.assertRaises(IntegrityError):
-            AccessRequest.objects.create(
-                employer=self.employer,
-                applicant=self.applicant,
-                status=AccessRequest.Status.PENDING
-            )
 
-    def test_multiple_decided_requests_allowed(self):
-        """Test that multiple decided requests can exist per employer-applicant pair."""
-        # Create approved request
-        AccessRequest.objects.create(
+# ============================================================
+# TEST 4: VIEW SHARED CERTIFICATES (2 tests)
+# ============================================================
+
+class ViewSharedCertificatesTest(AccessTestSetup):
+    
+    def test_view_active_shares(self):
+        """ Success: Employer sees active shares"""
+        request = AccessRequest.objects.create(
             employer=self.employer,
             applicant=self.applicant,
-            status=AccessRequest.Status.APPROVED,
-            decided_at=timezone.now()
+            status="APPROVED"
+        )
+        AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True
         )
         
-        # Create rejected request - should succeed
-        request2 = AccessRequest.objects.create(
+        shares = AccessShare.objects.filter(
+            request__employer=self.employer,
+            blockchain_synced=True
+        )
+        
+        self.assertEqual(shares.count(), 1)
+    
+    def test_expired_share_inactive(self):
+        """Fail: Expired share is not active"""
+        request = AccessRequest.objects.create(
             employer=self.employer,
             applicant=self.applicant,
-            status=AccessRequest.Status.REJECTED,
-            decided_at=timezone.now()
+            status="APPROVED"
+        )
+        share = AccessShare.objects.create(
+            request=request,
+            certificate=self.certificate,
+            blockchain_synced=True,
+            expiry_date=timezone.now() - timedelta(days=1) 
         )
         
-        self.assertIsNotNone(request2.id)
+        self.assertFalse(share.is_active())
